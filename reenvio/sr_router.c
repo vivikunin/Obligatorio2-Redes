@@ -97,10 +97,9 @@ void sr_handle_arp_packet(struct sr_instance *sr,
   /* COLOQUE SU CÓDIGO AQUÍ
   
   SUGERENCIAS:
-  - verifique si se trata de un ARP request o ARP reply y actúe acordemente 
-  - agregue el mapeo MAC->IP del emisor del paquete a la caché ARP
-  - si es una ARP request, antes de responder verifique si el paquete es para una interfaz del router
-  - si es una ARP reply, envíe los paquetes que hayan estado esperando por el ARP reply
+  - Verifique si se trata de un ARP request o ARP reply 
+  - Si es una ARP request, antes de responder verifique si el mensaje consulta por la dirección MAC asociada a una dirección IP configurada en una interfaz del router
+  - Si es una ARP reply, agregue el mapeo MAC->IP del emisor a la caché ARP y envíe los paquetes que hayan estado esperando por el ARP reply
   
   */
 }

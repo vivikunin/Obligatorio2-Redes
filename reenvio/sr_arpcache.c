@@ -24,8 +24,8 @@ void sr_arp_request_send(struct sr_instance *sr, uint32_t ip) {
   * COLOQUE AQÍ SU CÓDIGO
   * SUGERENCIAS: 
   * - Construya el cabezal Ethernet y agregue dirección de destino de broadcast
-  * - Envíe la solicitud ARP desde cada interfaz, para ello:
-  *	- Agregue la dirección de origen y el tipo de paquete
+  * - Envíe la solicitud ARP desde la interfaz conectada a la subred de la IP cuya MAC se desea conocer
+  * - Agregue la dirección de origen y el tipo de paquete
   * - Construya el cabezal ARP y envíe el paquete
   */
   
