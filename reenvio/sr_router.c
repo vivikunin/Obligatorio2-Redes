@@ -121,8 +121,8 @@ void sr_arp_reply_send_pending_packets(struct sr_instance *sr,
 
   while (currPacket != NULL) {
      ethHdr = (sr_ethernet_hdr_t *) currPacket->buf;
-     memcpy(ethHdr->ether_shost, dhost, sizeof(uint8_t) * ETHER_ADDR_LEN);
-     memcpy(ethHdr->ether_dhost, shost, sizeof(uint8_t) * ETHER_ADDR_LEN);
+     memcpy(ethHdr->ether_shost, shost, sizeof(uint8_t) * ETHER_ADDR_LEN);
+     memcpy(ethHdr->ether_dhost, dhost, sizeof(uint8_t) * ETHER_ADDR_LEN);
 
      copyPacket = malloc(sizeof(uint8_t) * currPacket->len);
      memcpy(copyPacket, ethHdr, sizeof(uint8_t) * currPacket->len);
