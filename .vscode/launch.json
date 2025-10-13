@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "C/C++ Runner: Debug Session",
+      "type": "lldb",
+      "request": "launch",
+      "args": [],
+      "cwd": "/Users/vivianekunin/Downloads/documentos/fing/6tosem/redes/obligatorio2/obligatorio2/reenvio",
+      "program": "/Users/vivianekunin/Downloads/documentos/fing/6tosem/redes/obligatorio2/obligatorio2/reenvio/build/Debug/outDebug"
+    }
+  ]
+}

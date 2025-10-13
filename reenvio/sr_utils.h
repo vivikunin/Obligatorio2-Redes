@@ -50,4 +50,7 @@ void print_hdr_arp(uint8_t *buf);
 /* prints all headers, starting from eth */
 void print_hdrs(uint8_t *buf, uint32_t length);
 
+//calcula el LPF (longest prefix match) de una IP en una tabla de enrutamiento
+struct sr_rt *sr_LPM(struct sr_instance *sr, uint32_t ip);
+
 #endif /* -- SR_UTILS_H -- */
