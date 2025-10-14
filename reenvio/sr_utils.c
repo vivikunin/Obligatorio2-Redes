@@ -4,7 +4,7 @@
 #include "sr_protocol.h"
 #include "sr_utils.h"
 #include "sr_router.h"
-
+#include "sr_rt.h"
 
 uint16_t cksum(const void *_data, int len)
 {
@@ -308,24 +308,25 @@ void print_hdrs(uint8_t *buf, uint32_t length)
     fprintf(stderr, "Unrecognized Ethernet Type: %d\n", ethtype);
   }
 }
+
+//Busca la entrada de la tabla de enrutamiento que tenga el prefijo más largo (LPM) que coincida con la IP dada
 struct sr_rt *sr_LPM(struct sr_instance *sr, uint32_t ip)
 {
-  struct sr_if *iface = sr_get_interface_given_ip(sr, ip);
+  struct sr_rt *entrada_actual = sr->routing_table;
   struct sr_rt *lpm = NULL;
-  struct sr_if *cur = iface->routing_table;
   uint32_t max_mask = 0;
 
-  while (cur)
+  while (entrada_actual != NULL)
   {
-    if ((ip & cur->mask.s_addr) == (cur->dest.s_addr & cur->mask.s_addr))
+    if ((ip & entrada_actual->mask.s_addr) == (entrada_actual->dest.s_addr & entrada_actual->mask.s_addr))
     {
-      if (cur->mask.s_addr > max_mask)
+      if (entrada_actual->mask.s_addr > max_mask)
       {
-        max_mask = cur->mask.s_addr;
-        lpm = cur;
+        max_mask = entrada_actual->mask.s_addr;
+        lpm = entrada_actual;
       }
     }
-    cur = cur->next;
+    entrada_actual = entrada_actual->next;
   }
 
   return lpm;

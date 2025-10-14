@@ -11,6 +11,7 @@
 #include "sr_if.h"
 #include "sr_protocol.h"
 #include "sr_utils.h"
+#include "sr_rt.h"
 
 #define ETHERTYPE_ARP 0x0806
 
@@ -30,7 +31,17 @@ void sr_arp_request_send(struct sr_instance *sr, uint32_t ip)
      * - Agregue la dirección de origen y el tipo de paquete
      * - Construya el cabezal ARP y envíe el paquete
      */
-    struct sr_if *iface = sr_get_interface_given_ip(sr, ip);
+
+    struct sr_rt *mejor_entrada_rt = sr_LPM(sr, ip);
+    if (!mejor_entrada_rt)
+    {
+        // Destination net unreachable (type 3, code 0)
+        // esta bien que no lleve datos? (NULL)
+        sr_send_icmp_error_packet(3, 0, sr, ip, NULL);
+        return;
+    }
+    struct sr_if *iface = sr_get_interface(sr, mejor_entrada_rt->interface);
+
     uint32_t src_ip = iface->ip;    // IP de origen
     uint8_t *src_mac = iface->addr; // MAC de origen
     uint8_t *dest_mac = generate_ethernet_addr(0xff);
@@ -64,7 +75,7 @@ void sr_arp_request_send(struct sr_instance *sr, uint32_t ip)
     // Sender MAC
     memcpy(packet + 22, src_mac, 6);
     // Sender IP
-    memcpy(packet + 28, ip, 4);
+    memcpy(packet + 28, &src_ip, 4);
     // Target MAC (desconocida, se pone en 0)
     memset(packet + 32, 0x00, 6);
     // Target IP
@@ -75,8 +86,6 @@ void sr_arp_request_send(struct sr_instance *sr, uint32_t ip)
 
     printf("$$$ -> Send ARP request processing complete.\n");
 }
-
-
 
 /*
   Para cada solicitud enviada, se verifica si se debe enviar otra solicitud o descartar la solicitud ARP.
@@ -91,12 +100,32 @@ void sr_arp_request_send(struct sr_instance *sr, uint32_t ip)
 void handle_arpreq(struct sr_instance *sr, struct sr_arpreq *req)
 {
     /* COLOQUE SU CÓDIGO AQUÍ */
+    time_t current_time = time(NULL);
+    if (difftime(current_time, req->sent) >= 1.0)
+    {
+        if (req->times_sent < 5)
+        {
+            sr_arp_request_send(sr, req->ip);
+            req->sent = current_time;
+            req->times_sent++;
+        }
+        else
+        {
+            host_unreachable(sr, req);
+            sr_arpreq_destroy(&(sr->cache), req);
+        }
+    }
 }
 
 /* Envía un mensaje ICMP host unreachable a los emisores de los paquetes esperando en la cola de una solicitud ARP */
 void host_unreachable(struct sr_instance *sr, struct sr_arpreq *req)
 {
     /* COLOQUE SU CÓDIGO AQUÍ */
+    struct sr_packet *paquete = req->packets;
+    while (paquete != NULL){
+        sr_send_icmp_error_packet(3, 1, sr, req->ip, paquete->buf);
+        paquete = paquete->next;
+    }
 }
 
 /* NO DEBERÍA TENER QUE MODIFICAR EL CÓDIGO A PARTIR DE AQUÍ. */
