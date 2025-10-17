@@ -32,58 +32,51 @@ void sr_arp_request_send(struct sr_instance *sr, uint32_t ip)
      * - Construya el cabezal ARP y envíe el paquete
      */
 
-    struct sr_rt *mejor_entrada_rt = sr_LPM(sr, ip);
-    if (!mejor_entrada_rt)
-    {
-        // Destination net unreachable (type 3, code 0)
-        // esta bien que no lleve datos? (NULL)
-        sr_send_icmp_error_packet(3, 0, sr, ip, NULL);
-        return;
-    }
-    struct sr_if *iface = sr_get_interface(sr, mejor_entrada_rt->interface);
+    // Reservar memoria para el paquete ARP
+    int largoPaquete = sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t);
+    uint8_t *arpPacket = malloc(largoPaquete);
 
-    uint32_t src_ip = iface->ip;    // IP de origen
-    uint8_t *src_mac = iface->addr; // MAC de origen
+    // Castear arpPacket para poder acceder a los campos
+    sr_ethernet_hdr_t *ethHdr = (struct sr_ethernet_hdr *)arpPacket;
+
     uint8_t *dest_mac = generate_ethernet_addr(0xff);
+    memcpy(ethHdr->ether_dhost, dest_mac, ETHER_ADDR_LEN);
 
-    // Define el tamaño total: Ethernet header (14) + ARP packet (28)
-    uint8_t packet[42];
 
-    // 1. Encabezado Ethernet
-    // Destino: broadcast
-    memset(packet, *dest_mac, 6);
-    // Origen: MAC de la interfaz
-    memcpy(packet + 6, src_mac, 6);
-    // Tipo: ARP (0x0806)
-    packet[12] = 0x08;
-    packet[13] = 0x06;
+    // Enviar la solicitud por todas las interfaces por hacer broadcast
+    struct sr_if *ifActual = sr->if_list;
+    uint8_t *copia;
+    copia = malloc(largoPaquete);
 
-    // 2. Encabezado ARP
-    // Hardware type: Ethernet (0x0001)
-    packet[14] = 0x00;
-    packet[15] = 0x01;
-    // Protocol type: IPv4 (0x0800)
-    packet[16] = 0x08;
-    packet[17] = 0x00;
-    // Hardware size: 6
-    packet[18] = 0x06;
-    // Protocol size: 4
-    packet[19] = 0x04;
-    // Opcode: request (0x0001)
-    packet[20] = 0x00;
-    packet[21] = 0x01;
-    // Sender MAC
-    memcpy(packet + 22, src_mac, 6);
-    // Sender IP
-    memcpy(packet + 28, &src_ip, 4);
-    // Target MAC (desconocida, se pone en 0)
-    memset(packet + 32, 0x00, 6);
-    // Target IP
-    memcpy(packet + 38, &ip, 4);
+    while (ifActual != NULL)
+    {
+        
+        // Armar header Ethernet
+        memcpy(ethHdr->ether_shost, (uint8_t *)ifActual->addr, sizeof(uint8_t) * ETHER_ADDR_LEN);
+        ethHdr->ether_type = htons(ethertype_arp); // pasamos a big endian
 
-    // Envía el paquete
-    sr_send_packet(sr, packet, sizeof(packet), iface->name);
+        // Armar header ARP
+        sr_arp_hdr_t *arpHdr = (sr_arp_hdr_t *)(arpPacket + sizeof(sr_ethernet_hdr_t));
+        arpHdr->ar_hrd = htons(1); //1 significa Ethernet
+        arpHdr->ar_pro = htons(2048); //2048 significa IPv4
+        arpHdr->ar_hln = 6;
+        arpHdr->ar_pln = 4;
+        arpHdr->ar_op = htons(arp_op_request);
+        memcpy(arpHdr->ar_sha, ifActual->addr, ETHER_ADDR_LEN); //ARP salida (MAC origen)
+        memcpy(arpHdr->ar_tha, (char *)generate_ethernet_addr(0), ETHER_ADDR_LEN); //ARP destino desconocida (MAC destino desconocido)
+        arpHdr->ar_sip = ifActual->ip;
+        arpHdr->ar_tip = ip;
 
+        // Enviar paquete
+        memcpy(copia, ethHdr, largoPaquete);
+        sr_send_packet(sr, copia, largoPaquete, ifActual->name);
+
+        ifActual = ifActual->next;
+    }
+
+    //Liberar memoria
+    free(arpPacket);
+    free(copia);
     printf("$$$ -> Send ARP request processing complete.\n");
 }
 
@@ -122,8 +115,10 @@ void host_unreachable(struct sr_instance *sr, struct sr_arpreq *req)
 {
     /* COLOQUE SU CÓDIGO AQUÍ */
     struct sr_packet *paquete = req->packets;
-    while (paquete != NULL){
-        sr_send_icmp_error_packet(3, 1, sr, req->ip, paquete->buf);
+    sr_ip_hdr_t *headerIp = (sr_ip_hdr_t *) (paquete->buf + sizeof(sr_ethernet_hdr_t));
+    while (paquete != NULL)
+    {
+        sr_send_icmp_error_packet(3, 1, sr, headerIp->ip_src, headerIp);
         paquete = paquete->next;
     }
 }
