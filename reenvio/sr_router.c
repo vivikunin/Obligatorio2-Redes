@@ -72,12 +72,29 @@ void sr_send_icmp_error_packet(uint8_t type,
   memcpy(packet, ipPacket, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
   sr_ethernet_hdr_t *ethHdr = (sr_ethernet_hdr_t *) ipPacket;
 
-  struct sr_if *iface = sr_get_interface(sr, interface);
+  struct sr_if *iface = sr_get_interface(sr, sr_LPM(sr, ipDst)->interface);
   
-  sr_ethernet_hdr_t* ether_hdr_new_packet = (sr_ethernet_hdr_t*)new_packet;
-  sr_ethernet_hdr_t* ether_hdr_packet = (sr_ethernet_hdr_t*)packet;
+  sr_ethernet_hdr_t* ether_hdr_new_packet = (sr_ethernet_hdr_t*)packet;
+  sr_ethernet_hdr_t* ether_hdr_packet = (sr_ethernet_hdr_t*)ipPacket;
   memcpy(ether_hdr_new_packet->ether_shost, iface->addr, ETHER_ADDR_LEN);
   memcpy(ether_hdr_new_packet->ether_dhost, ether_hdr_packet->ether_shost, ETHER_ADDR_LEN);
+  /*Consigo el header IP del paquete original */
+  sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(ipPacket + sizeof(sr_ethernet_hdr_t));
+
+  /* Consigo el header IP del nuevo paquete */
+  sr_ip_hdr_t *new_ip_hdr = (sr_ip_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t));
+
+  // VER ESTO BIEN  
+  /* Cambio la longitud del cabezal IP para agregar el ICMP*/
+  new_ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
+  /* Establezco el ttl en 64 (predefinido)*/
+  new_ip_hdr->ip_ttl = 64;
+  /* Cambio el protocolo a ICMP*/
+  new_ip_hdr->ip_p = ip_protocol_icmp;
+  /* Cambio la direccion IP de destino por la del paquete original*/
+  new_ip_hdr->ip_dst = ip_hdr->ip_src;
+  /* Cambio la direccion IP de origen por la de la interfaz de salida */
+  new_ip_hdr->ip_src = iface->ip;
 
 
   
