@@ -57,7 +57,65 @@ void sr_send_icmp_error_packet(uint8_t type,
 {
 
   /* COLOQUE AQUÍ SU CÓDIGO*/
+  printf("$$$ -> Send ICMP error packet.\n");
+  /*
+   * SUGERENCIAS:
+   * - Construya el cabezal Ethernet y agregue la dirección de destino (debe obtenerla de la caché ARP o enviar una solicitud ARP si no está en la caché)
+   * - Construya el cabezal IP
+   * - Construya el cabezal ICMP
+   * - No olvide calcular los checksums
+   * - Envíe el paquete desde la interfaz conectada a la subred de la IP destino
+   */
+  unsigned int len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t);  
+  uint8_t *packet = malloc(len);
+  
+  memcpy(packet, ipPacket, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
+  sr_ethernet_hdr_t *ethHdr = (sr_ethernet_hdr_t *) ipPacket;
 
+  struct sr_if *iface = sr_get_interface(sr, interface);
+  
+  sr_ethernet_hdr_t* ether_hdr_new_packet = (sr_ethernet_hdr_t*)new_packet;
+  sr_ethernet_hdr_t* ether_hdr_packet = (sr_ethernet_hdr_t*)packet;
+  memcpy(ether_hdr_new_packet->ether_shost, iface->addr, ETHER_ADDR_LEN);
+  memcpy(ether_hdr_new_packet->ether_dhost, ether_hdr_packet->ether_shost, ETHER_ADDR_LEN);
+
+
+  
+
+
+  struct sr_if *iface = sr_get_interface(sr, sr_LPM(sr, ipDst)->interface);
+  uint8_t *src_mac = iface->addr;
+  //struct sr_arpentry *sr_arpcache_lookup(struct sr_arpcache *cache, uint32_t ip);
+
+  
+  
+  
+  
+  
+  packet[34] = type;
+  packet[35] = code;
+  uint16_t checksum = cksum(ipPacket, sizeof(ipPacket));
+  packet[36] = (uint8_t *)&(checksum);
+  packet[37] = (uint8_t *)&(checksum) + 1;
+  for (int i = 0; i < 28; i++){
+    packet[38 + i] = ipPacket[i];
+  }
+  
+  
+  
+  
+
+
+  /* Envío del paquete ICMP */  
+  struct sr_arpentry *entry = sr_arpcache_lookup(&(sr->cache), ipDst);
+  if (!entry){
+    sr_arpcache_queuereq(&(sr->cache), ipDst, (uint8_t *)packet, sizeof(packet), iface->name);
+  } else {
+    uint8_t *dest_mac = entry->mac;
+    packet[0] = *dest_mac;  
+    sr_send_packet(sr, (uint8_t *)packet, sizeof(packet),sr_get_interface(sr, sr_LPM(sr, ipDst)->interface)->name);
+  }
+  
 } /* -- sr_send_icmp_error_packet -- */
 
 void sr_handle_ip_packet(struct sr_instance *sr,
