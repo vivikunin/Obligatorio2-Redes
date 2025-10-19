@@ -151,6 +151,70 @@ void sr_send_icmp_error_packet(uint8_t type,
 
 } /* -- sr_send_icmp_error_packet -- */
 
+//Agregamos funcion para enviar echo reply
+void sr_send_icmp_echo_reply(struct sr_instance *sr,
+                             uint8_t *packet,
+                             unsigned int len,
+                             char *interface)
+{
+  /* Se pide memoria para el nuevo paquete (ethernet,ip y icmp)*/
+  uint8_t *new_packet = (uint8_t *)malloc(len);
+
+  /* Se copia la cabecera Ethernet e IP del paquete original */
+  memcpy(new_packet, packet, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
+
+  /* Obtengo la interfaz de salida */
+  struct sr_if *iface = sr_get_interface(sr, interface);
+
+  /* Se copia la dirección MAC de la interfaz de salida y 
+  la dirección MAC origen del paquete original al paquete */
+  sr_ethernet_hdr_t* ether_hdr_new_packet = (sr_ethernet_hdr_t*)new_packet;
+  sr_ethernet_hdr_t* ether_hdr_packet = (sr_ethernet_hdr_t*)packet;
+  memcpy(ether_hdr_new_packet->ether_shost, iface->addr, ETHER_ADDR_LEN);
+  memcpy(ether_hdr_new_packet->ether_dhost, ether_hdr_packet->ether_shost, ETHER_ADDR_LEN);
+
+  /*Consigo el header IP del paquete original */
+  sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t));
+
+  /* Consigo el header IP del nuevo paquete */
+  sr_ip_hdr_t *new_ip_hdr = (sr_ip_hdr_t *)(new_packet + sizeof(sr_ethernet_hdr_t));
+
+  /* Modificar la cabecera IP */
+
+  /* Cambio la longitud del cabezal IP para agregar el ICMP*/
+  new_ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
+  /* Establezco el ttl en 64 (predefinido)*/
+  new_ip_hdr->ip_ttl = 64;
+  /* Cambio el protocolo a ICMP*/
+  new_ip_hdr->ip_p = ip_protocol_icmp;
+  /* Cambio la direccion IP de destino por la del paquete original*/
+  new_ip_hdr->ip_dst = ip_hdr->ip_src;
+  /* Cambio la direccion IP de origen por la de la interfaz de salida */
+  new_ip_hdr->ip_src = iface->ip;
+  
+  /* Calcular el checksum del paquete IP */
+  new_ip_hdr->ip_sum = 0;
+  new_ip_hdr->ip_sum = ip_cksum(new_ip_hdr, sizeof(sr_ip_hdr_t));
+
+  /* Crear la cabecera ICMP */
+  sr_icmp_hdr_t *icmp_hdr = (sr_icmp_hdr_t *)(new_packet + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
+  sr_icmp_hdr_t *icmp_hdr_orig = (sr_icmp_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
+
+  /* Copiamos del paquete orignal (todo) a partir de la cabecera ICMP*/
+  memcpy(icmp_hdr, icmp_hdr_orig, len - sizeof(sr_ethernet_hdr_t) - sizeof(sr_ip_hdr_t));
+  icmp_hdr->icmp_type = 0;
+  icmp_hdr->icmp_code = 0;
+  icmp_hdr->icmp_sum = 0;
+  icmp_hdr->icmp_sum = icmp_cksum(icmp_hdr, len - sizeof(sr_ethernet_hdr_t) - sizeof(sr_ip_hdr_t));
+
+  /* Enviar el paquete ICMP */
+  sr_send_packet(sr, new_packet, len, iface->name);
+
+  /* Liberar memoria */
+  free(new_packet);
+
+} /* -- sr_send_icmp_echo_reply -- */
+
 void sr_handle_ip_packet(struct sr_instance *sr,
                          uint8_t *packet /* lent */,
                          unsigned int len,
@@ -175,7 +239,7 @@ void sr_handle_ip_packet(struct sr_instance *sr,
   sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t));
   uint32_t ipDst = ip_hdr->ip_dst;
   print_hdr_ip((uint8_t *)ip_hdr);
-  
+
   // Buscar interfaz en las interfaces del router
   int interfaz_encontrada = 0;
   struct sr_if *if_actual = sr->if_list;
@@ -263,6 +327,62 @@ void sr_handle_arp_packet(struct sr_instance *sr,
   - Si es una ARP reply, agregue el mapeo MAC->IP del emisor a la caché ARP y envíe los paquetes que hayan estado esperando por el ARP reply
 
   */
+
+  sr_arp_hdr_t *arp_hdr = (sr_arp_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t));
+
+
+  /* Obtengo las direcciones MAC */
+  unsigned char senderHardAddr[ETHER_ADDR_LEN], targetHardAddr[ETHER_ADDR_LEN];
+  memcpy(senderHardAddr, arp_hdr->ar_sha, ETHER_ADDR_LEN);
+  memcpy(targetHardAddr, arp_hdr->ar_tha, ETHER_ADDR_LEN);
+
+  /* Obtengo las direcciones IP */
+  uint32_t senderIP = arp_hdr->ar_sip;
+  uint32_t targetIP = arp_hdr->ar_tip;
+  unsigned short op = ntohs(arp_hdr->ar_op);
+
+  /* Verifico si el paquete ARP es para una de mis interfaces */
+  struct sr_if *myInterface = sr_get_interface_given_ip(sr, targetIP);
+
+  if (op == arp_op_request) {  
+    printf("**** -> It is an ARP request.\n");
+
+    /* Si el ARP request es para una de mis interfaces */
+    if (myInterface != 0) {
+      printf("***** -> ARP request is for one of my interfaces.\n");
+
+      /* Construyo un ARP reply y lo envío de vuelta */
+      printf("****** -> Construct an ARP reply and send it back.\n");
+      memcpy(eHdr->ether_shost, (uint8_t *) myInterface->addr, sizeof(uint8_t) * ETHER_ADDR_LEN);
+      memcpy(eHdr->ether_dhost, (uint8_t *) senderHardAddr, sizeof(uint8_t) * ETHER_ADDR_LEN);
+      memcpy(arp_hdr->ar_sha, myInterface->addr, ETHER_ADDR_LEN);
+      memcpy(arp_hdr->ar_tha, senderHardAddr, ETHER_ADDR_LEN);
+      arp_hdr->ar_sip = targetIP;
+      arp_hdr->ar_tip = senderIP;
+      arp_hdr->ar_op = htons(arp_op_reply);
+
+      /* Imprimo el cabezal del ARP reply creado */
+      print_hdrs(packet, len);
+
+      sr_send_packet(sr, packet, len, myInterface->name);
+    }
+  } else if (op == arp_op_reply) {  /* Si es un reply ARP */
+
+    printf("**** -> It is an ARP reply.\n");
+
+    /* Agrego el mapeo MAC->IP del sender a mi caché ARP */
+    printf("***** -> Add MAC->IP mapping of sender to my ARP cache.\n");
+    struct sr_arpreq *arpReq = sr_arpcache_insert(&(sr->cache), senderHardAddr, senderIP);
+    
+    if (arpReq != NULL) { /* Si hay paquetes pendientes */
+
+    	printf("****** -> Send outstanding packets.\n");
+    	sr_arp_reply_send_pending_packets(sr, arpReq, (uint8_t *) myInterface->addr, (uint8_t *) senderHardAddr, myInterface);
+    	sr_arpreq_destroy(&(sr->cache), arpReq);
+
+    }
+    printf("******* -> ARP reply processing complete.\n");
+  }
 }
 
 /*

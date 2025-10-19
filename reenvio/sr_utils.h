@@ -28,6 +28,9 @@
 #ifndef SR_UTILS_H
 #define SR_UTILS_H
 
+#include "sr_router.h"
+#include "sr_rt.h"
+
 uint16_t cksum(const void *_data, int len);
 uint32_t ip_cksum (sr_ip_hdr_t *ipHdr, int len);
 uint32_t icmp_cksum (sr_icmp_hdr_t *icmpHdr, int len);

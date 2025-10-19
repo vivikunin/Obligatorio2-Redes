@@ -76,5 +76,10 @@ void sr_add_interface(struct sr_instance* , const char* );
 void sr_set_ether_ip(struct sr_instance* , uint32_t );
 void sr_set_ether_addr(struct sr_instance* , const unsigned char* );
 void sr_print_if_list(struct sr_instance* );
+void sr_arp_reply_send_pending_packets(struct sr_instance *sr,
+                                       struct sr_arpreq *arpReq,
+                                       uint8_t *dhost,
+                                       uint8_t *shost,
+                                       struct sr_if *iface);
 
 #endif /* SR_ROUTER_H */
