@@ -309,7 +309,7 @@ void print_hdrs(uint8_t *buf, uint32_t length)
   }
 }
 
-//Busca la entrada de la tabla de enrutamiento que tenga el prefijo más largo (LPM) que coincida con la IP dada
+/* Busca la entrada de la tabla de enrutamiento que tenga el prefijo más largo (LPM) que coincida con la IP dada */
 struct sr_rt *sr_LPM(struct sr_instance *sr, uint32_t ip)
 {
   struct sr_rt *entrada_actual = sr->routing_table;

@@ -68,15 +68,15 @@ void sr_send_icmp_error_packet(uint8_t type,
   unsigned int len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t);
   uint8_t *packet = malloc(len);
 
-  // Header IP del paquete original
-  // sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(ipPacket + sizeof(sr_ethernet_hdr_t));
-  // Obtener la interfaz de salida por LPM
+  /* Header IP del paquete original */
+  /* sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(ipPacket + sizeof(sr_ethernet_hdr_t)); */
+  /* Obtener la interfaz de salida por LPM */
 
   struct sr_rt *lpm = sr_LPM(sr, ipDst);
   struct sr_if *iface = NULL;
   if (!lpm)
   {
-    // No hay ruta para el destino, no se puede enviar ICMP error, esta ok?
+    /* No hay ruta para el destino, no se puede enviar ICMP error, esta ok? */
     free(packet);
     return;
   }
@@ -85,23 +85,23 @@ void sr_send_icmp_error_packet(uint8_t type,
     iface = sr_get_interface(sr, lpm->interface);
   }
 
-  // Construir header IP
+  /* Construir header IP */
 
-  // Header IP del nuevo paquete
+  /* Header IP del nuevo paquete */
   sr_ip_hdr_t *new_ip_hdr = (sr_ip_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t));
-  // Llenar campos del header IP
-  new_ip_hdr->ip_tos = 0;                                                     // Type of service 0 para ICMP
-  new_ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t)); // Cambio de longitud del cabezal IP para agregar el ICMP
-  new_ip_hdr->ip_id = 0;                                                      // No hay fragmentacion
-  new_ip_hdr->ip_off = 0;                                                     // No hay fragmentacion
+  /* Llenar campos del header IP */
+  new_ip_hdr->ip_tos = 0;                                                     /* Type of service 0 para ICMP */
+  new_ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t)); /* Cambio de longitud del cabezal IP para agregar el ICMP */
+  new_ip_hdr->ip_id = 0;                                                      /* No hay fragmentacion */
+  new_ip_hdr->ip_off = 0;                                                     /* No hay fragmentacion */
   new_ip_hdr->ip_ttl = 64;
   new_ip_hdr->ip_p = ip_protocol_icmp;
-  new_ip_hdr->ip_src = iface->ip; // Dirección IP de la interfaz de salida
-  new_ip_hdr->ip_dst = ipDst;     // Dirección IP de destino es la de origen del paquete original
+  new_ip_hdr->ip_src = iface->ip; /* Dirección IP de la interfaz de salida */
+  new_ip_hdr->ip_dst = ipDst;     /* Dirección IP de destino es la de origen del paquete original */
   new_ip_hdr->ip_sum = 0;
   new_ip_hdr->ip_sum = ip_cksum(new_ip_hdr, sizeof(sr_ip_hdr_t));
 
-  // Construir header ICMP
+  /* Construir header ICMP */
   if (type == 3 || type == 11 || type == 12)
   {
     sr_icmp_t3_hdr_t *icmp_hdr = (sr_icmp_t3_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
@@ -109,12 +109,12 @@ void sr_send_icmp_error_packet(uint8_t type,
     icmp_hdr->icmp_code = code;
     icmp_hdr->icmp_sum = 0;
     icmp_hdr->unused = 0;
-    icmp_hdr->next_mtu = 0; // PREGUNTAR COMO SE COMPLETA MTU
+    icmp_hdr->next_mtu = 0; /* PREGUNTAR COMO SE COMPLETA MTU */  
 
-    // Se copia la cabecera IP original y los primeros 8 bytes del paquete original
+    /* Se copia la cabecera IP original y los primeros 8 bytes del paquete original */
     memcpy(icmp_hdr->data, ipPacket, sizeof(sr_ip_hdr_t) + 8);
 
-    // Calculo el checksum del header ICMP
+    /* Calculo el checksum del header ICMP */
     icmp_hdr->icmp_sum = icmp3_cksum(icmp_hdr, sizeof(sr_icmp_t3_hdr_t));
   }
   else
@@ -127,12 +127,12 @@ void sr_send_icmp_error_packet(uint8_t type,
     icmp_hdr->icmp_sum = icmp_cksum(icmp_hdr, sizeof(sr_icmp_hdr_t));
   }
 
-  // Construir el header Ethernet
+  /* Construir el header Ethernet */
   sr_ethernet_hdr_t *ether_hdr_new_packet = (sr_ethernet_hdr_t *)packet;
-  memcpy(ether_hdr_new_packet->ether_shost, iface->addr, ETHER_ADDR_LEN); // MAC de origen es la de la interfaz de salida
+  memcpy(ether_hdr_new_packet->ether_shost, iface->addr, ETHER_ADDR_LEN); /* MAC de origen es la de la interfaz de salida */
   ether_hdr_new_packet->ether_type = htons(ethertype_ip);
 
-  // Determinar MAC destino en la cache ARP y enviar o hacer ARP request
+  /* Determinar MAC destino en la cache ARP y enviar o hacer ARP request */
   struct sr_arpentry *entry = sr_arpcache_lookup(&(sr->cache), ipDst);
   if (!entry)
   {
@@ -140,7 +140,7 @@ void sr_send_icmp_error_packet(uint8_t type,
   }
   else
   {
-    // Completar MAC destino y enviar paquete si se encuentra en cache ARP
+    /* Completar MAC destino y enviar paquete si se encuentra en cache ARP */
     uint8_t *dest_mac = entry->mac;
     memcpy(ether_hdr_new_packet->ether_dhost, dest_mac, ETHER_ADDR_LEN);
     print_hdr_ip((uint8_t *)new_ip_hdr);
@@ -151,7 +151,7 @@ void sr_send_icmp_error_packet(uint8_t type,
 
 } /* -- sr_send_icmp_error_packet -- */
 
-//Agregamos funcion para enviar echo reply
+/* Agregamos funcion para enviar echo reply */
 void sr_send_icmp_echo_reply(struct sr_instance *sr,
                              uint8_t *packet,
                              unsigned int len,
@@ -240,7 +240,7 @@ void sr_handle_ip_packet(struct sr_instance *sr,
   uint32_t ipDst = ip_hdr->ip_dst;
   print_hdr_ip((uint8_t *)ip_hdr);
 
-  // Buscar interfaz en las interfaces del router
+  /* Buscar interfaz en las interfaces del router */
   int interfaz_encontrada = 0;
   struct sr_if *if_actual = sr->if_list;
   while (if_actual != NULL && interfaz_encontrada == 0)
@@ -254,47 +254,47 @@ void sr_handle_ip_packet(struct sr_instance *sr,
   }
   if (interfaz_encontrada)
   {
-    // El router debe procesar el paquete
+    /* El router debe procesar el paquete */
     if (ip_hdr->ip_p == ip_protocol_icmp)
     {
       sr_icmp_hdr_t *icmp_hdr = (sr_icmp_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
       if (icmp_hdr->icmp_type == 8)
-      { // Echo request
-        // Construir y enviar echo reply
+      { /* Echo request */
+        /* Construir y enviar echo reply */
         sr_send_icmp_echo_reply(sr, packet, len, if_actual);
       }
-      // Si es TCP o UDP enviar ICMP port unreachable
+      /* Si es TCP o UDP enviar ICMP port unreachable */
     }
     else if (ip_hdr->ip_p == 6 || ip_hdr->ip_p == 17)
     {
-      // Enviar ICMP port unreachable
+      /* Enviar ICMP port unreachable */
       sr_send_icmp_error_packet(3, 3, sr, ip_hdr->ip_src, packet);
     }
     return;
   }
   else
   {
-    // El router debe reenviar el paquete
-    // Verificar TTL
+    /* El router debe reenviar el paquete */
+    /* Verificar TTL */
     if (ip_hdr->ip_ttl <= 1)
     {
-      // Enviar ICMP Time Exceeded al origen del paquete original
+      /* Enviar ICMP Time Exceeded al origen del paquete original */
       sr_send_icmp_error_packet(11, 0, sr, ip_hdr->ip_src, packet);
       return;
     }
-    // Decrementar TTL y recalcular checksum
+    /* Decrementar TTL y recalcular checksum */
     ip_hdr->ip_ttl -= 1;
     ip_hdr->ip_sum = 0;
     ip_hdr->ip_sum = ip_cksum(ip_hdr, sizeof(sr_ip_hdr_t));
 
-    //Buscar interfaz de salida por LPM
+    /* Buscar interfaz de salida por LPM */
     struct sr_rt *lpm = sr_LPM(sr, ipDst);
     struct sr_if *iface = NULL;
     if (!lpm)
     {
-      // No hay ruta para el destino enviar Destination net unreachable (3,0)
+      /* No hay ruta para el destino enviar Destination net unreachable (3,0) */
       sr_send_icmp_error_packet(3, 0, sr, ip_hdr->ip_src, packet);
-      free(packet); //hay que liberar aca?
+      free(packet); /* hay que liberar aca? */
       return;
     }
     else
