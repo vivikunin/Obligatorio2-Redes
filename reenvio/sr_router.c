@@ -85,7 +85,10 @@ void sr_send_icmp_error_packet(uint8_t type,
   }
   struct sr_if *iface = sr_get_interface(sr, lpm->interface);
   if (!iface)
+  {
+    free(packet);
     return;
+  }
   uint32_t next_hop = (lpm->gw.s_addr != 0) ? lpm->gw.s_addr : ipDst;
 
   /* Punteros a headers internos */
@@ -94,10 +97,14 @@ void sr_send_icmp_error_packet(uint8_t type,
   sr_icmp_t3_hdr_t *icmp_hdr = (sr_icmp_t3_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
 
   /* Construir header IP */
-  new_ip_hdr->ip_v = 4;
-  new_ip_hdr->ip_hl = 5;
-  new_ip_hdr->ip_tos = 0;                                                     /* Type of service 0 para ICMP */
-  new_ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t)); /* Cambio de longitud del cabezal IP para agregar el ICMP */
+memset(new_ip_hdr, 0, sizeof(sr_ip_hdr_t));
+
+/* Version (4 bits) y Header Length (4 bits) en el mismo byte */
+*((uint8_t *)new_ip_hdr) = (4 << 4) | 5;  /* 0x45 */
+
+new_ip_hdr->ip_tos = 0;
+new_ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
+
   new_ip_hdr->ip_id = 0;                                                      /* No hay fragmentacion */
   new_ip_hdr->ip_off = 0;                                                     /* No hay fragmentacion */
   new_ip_hdr->ip_ttl = 64;
@@ -129,7 +136,7 @@ void sr_send_icmp_error_packet(uint8_t type,
   struct sr_arpentry *entry = sr_arpcache_lookup(&(sr->cache), next_hop);
   if (!entry)
   {
-    sr_arpcache_queuereq(&(sr->cache), ipDst, (uint8_t *)packet, pktlen, iface->name);
+    sr_arpcache_queuereq(&(sr->cache), next_hop, (uint8_t *)packet, pktlen, iface->name);
   }
   else
   {
@@ -223,7 +230,7 @@ void sr_handle_ip_packet(struct sr_instance *sr,
    * - Sino, verificar TTL, ARP y reenviar si corresponde (puede necesitar una solicitud ARP y esperar la respuesta)
    * - No olvide imprimir los mensajes de depuración
    */
-
+  printf("Comienza sr_handle_ip_packet\n");
   sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t));
   uint32_t ipDst = ip_hdr->ip_dst;
   print_hdr_ip((uint8_t *)ip_hdr);
@@ -270,14 +277,9 @@ void sr_handle_ip_packet(struct sr_instance *sr,
       sr_send_icmp_error_packet(11, 0, sr, ip_hdr->ip_src, packet);
       return;
     }
-    /* Decrementar TTL y recalcular checksum */
-    ip_hdr->ip_ttl -= 1;
-    ip_hdr->ip_sum = 0;
-    ip_hdr->ip_sum = ip_cksum(ip_hdr, sizeof(sr_ip_hdr_t));
 
     /* Buscar interfaz de salida por LPM */
     struct sr_rt *lpm = sr_LPM(sr, ipDst);
-    struct sr_if *iface = NULL;
     if (!lpm)
     {
       /* No hay ruta para el destino enviar Destination net unreachable (3,0) */
@@ -286,7 +288,11 @@ void sr_handle_ip_packet(struct sr_instance *sr,
     }
     else
     {
-      iface = sr_get_interface(sr, lpm->interface);
+      struct sr_if *iface = sr_get_interface(sr, lpm->interface);
+      if (!iface) {
+        fprintf(stderr, "Error: interface not found\n");
+      return;
+      }
 
       /* Determinar next hop: si la entrada tiene gateway (gw != 0) usarla, si no usar ipDst */
       uint32_t next_hop = 0;
@@ -299,6 +305,19 @@ void sr_handle_ip_packet(struct sr_instance *sr,
         next_hop = ipDst;
       }
 
+      /* HACER COPIA DEL PAQUETE porque vamos a modificarlo */
+      uint8_t *pkt_copy = malloc(len);
+      if (!pkt_copy) return;
+      memcpy(pkt_copy, packet, len);
+
+      sr_ip_hdr_t *ip_copy = (sr_ip_hdr_t *)(pkt_copy + sizeof(sr_ethernet_hdr_t));
+      sr_ethernet_hdr_t *eth_copy = (sr_ethernet_hdr_t *)pkt_copy;
+
+       /* Decrementar TTL y recalcular checksum */
+      ip_copy->ip_ttl -= 1;
+      ip_copy->ip_sum = 0;
+      ip_copy->ip_sum = ip_cksum(ip_copy, sizeof(sr_ip_hdr_t));
+
       /* Buscar MAC destino en la cache ARP */
       struct sr_arpentry *entry = sr_arpcache_lookup(&(sr->cache), next_hop);
       sr_ethernet_hdr_t *eth_hdr = (sr_ethernet_hdr_t *)packet;
@@ -306,17 +325,20 @@ void sr_handle_ip_packet(struct sr_instance *sr,
       if (entry)
       {
         /* Setear MAC origen/dest y enviar */
-        memcpy(eth_hdr->ether_shost, iface->addr, ETHER_ADDR_LEN);
-        memcpy(eth_hdr->ether_dhost, entry->mac, ETHER_ADDR_LEN);
-        sr_send_packet(sr, packet, len, iface->name);
+        memcpy(eth_copy->ether_shost, iface->addr, ETHER_ADDR_LEN);
+        memcpy(eth_copy->ether_dhost, entry->mac, ETHER_ADDR_LEN);
+        sr_send_packet(sr, pkt_copy, len, iface->name);
+        free(pkt_copy);
         free(entry);
         return;
       }
       else
       {
-        /* Encolar el paquete y solicitar ARP */
-        sr_arpcache_queuereq(&(sr->cache), next_hop, packet, len, iface->name);
-        return;
+
+      /* No esta la MAC en cache, actualizar MAC origen y encolar */
+      memcpy(eth_copy->ether_shost, iface->addr, ETHER_ADDR_LEN);
+      sr_arpcache_queuereq(&(sr->cache), next_hop, pkt_copy, len, iface->name);
+      free(pkt_copy);
       }
     }
   }
@@ -398,7 +420,27 @@ void sr_handle_arp_packet(struct sr_instance *sr,
     { /* Si hay paquetes pendientes */
 
       printf("****** -> Send outstanding packets.\n");
-      sr_arp_reply_send_pending_packets(sr, arpReq, senderHardAddr, myInterface->addr, myInterface);
+
+        /* Obtener una interfaz válida para enviar: preferimos la interfaz almacenada
+     en el primer paquete pendiente (ese es el iface que se usó al encolar). */
+      struct sr_if *out_if = NULL;
+      if (arpReq->packets && arpReq->packets->iface) {
+        out_if = sr_get_interface(sr, arpReq->packets->iface);
+      }
+
+      /* Si no encontramos iface por el paquete, usar myInterface si no es NULL */
+      if (!out_if) {
+        out_if = myInterface;
+      }
+
+      if (out_if) {
+        sr_arp_reply_send_pending_packets(sr, arpReq, senderHardAddr, myInterface->addr, myInterface);
+      } else {
+        /* No hay interfaz conocida: registrar y descartar/limpiar la req */
+        fprintf(stderr, "sr_handle_arp_packet: no iface available to send pending packets for ARP reply %s\n",
+                inet_ntoa(*((struct in_addr *)&senderIP)));
+      }
+
       sr_arpreq_destroy(&(sr->cache), arpReq);
     }
     printf("******* -> ARP reply processing complete.\n");
@@ -473,12 +515,14 @@ void sr_handlepacket(struct sr_instance *sr,
 
   if (is_packet_valid(packet, len))
   {
+    printf("*** -> Packet is valid. Process packet according to its type.\n");
     if (pktType == ethertype_arp)
     {
       sr_handle_arp_packet(sr, packet, len, srcAddr, destAddr, interface, eHdr);
     }
     else if (pktType == ethertype_ip)
     {
+      printf("Enviando a handle ip packet\n");
       sr_handle_ip_packet(sr, packet, len, srcAddr, destAddr, interface, eHdr);
     }
   }
