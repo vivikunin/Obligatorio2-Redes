@@ -32,18 +32,67 @@ void sr_arp_request_send(struct sr_instance *sr, uint32_t ip)
      * - Construya el cabezal ARP y envíe el paquete
      */
 
-    /* Reservar memoria para el paquete ARP */
-    int largoPaquete = sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t);
+    
+    if (!sr) return;
+    printf("$$$ -> Send ARP request for IP ");
+    print_addr_ip_int(ntohl(ip));
+
+    /* Determinar la interfaz de salida usando LPM sobre la IP objetivo */
+    struct sr_rt *lpm = sr_LPM(sr, ip);
+    struct sr_if *out_if = NULL;
+    if (lpm) {
+        out_if = sr_get_interface(sr, lpm->interface);
+    }
+
+    /* Si no encontramos LPM, no sabemos por donde enviar (no reenviamos a todas) */
+    if (!out_if) {
+        fprintf(stderr, "sr_arp_request_send: no LPM found for ip "); print_addr_ip_int(ntohl(ip));
+        return;
+    }
+
+    int pkt_len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t);
+    uint8_t *arpPacket = malloc(pkt_len);
+    if (!arpPacket) return;
+
+    /* Ethernet header */
+    sr_ethernet_hdr_t *ethHdr = (sr_ethernet_hdr_t *)arpPacket;
+    /* Broadcast dest */
+    memset(ethHdr->ether_dhost, 0xFF, ETHER_ADDR_LEN);
+    memcpy(ethHdr->ether_shost, out_if->addr, ETHER_ADDR_LEN);
+    ethHdr->ether_type = htons(ethertype_arp);
+
+    /* ARP header */
+    sr_arp_hdr_t *arpHdr = (sr_arp_hdr_t *)(arpPacket + sizeof(sr_ethernet_hdr_t));
+    arpHdr->ar_hrd = htons(1);
+    arpHdr->ar_pro = htons(ethertype_ip); /* mejor usar la constante */
+    arpHdr->ar_hln = ETHER_ADDR_LEN;
+    arpHdr->ar_pln = 4;
+    arpHdr->ar_op = htons(arp_op_request);
+    memcpy(arpHdr->ar_sha, out_if->addr, ETHER_ADDR_LEN);
+    memset(arpHdr->ar_tha, 0x00, ETHER_ADDR_LEN); /* target MAC desconocida = 0 */
+    arpHdr->ar_sip = out_if->ip;
+    arpHdr->ar_tip = ip;
+
+    /* Enviar por la interfaz de salida */
+    /* sr_send_packet no libera arpPacket, sr_arpcache_queuereq sí hace copias; aquí enviamos directamente */
+    sr_send_packet(sr, arpPacket, pkt_len, out_if->name);
+
+    free(arpPacket);
+    printf("$$$ -> ARP request sent on iface %s\n", out_if->name);
+
+    /*version anterior
+    /* Reservar memoria para el paquete ARP 
+    *int largoPaquete = sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t);
     uint8_t *arpPacket = malloc(largoPaquete);
 
-    /* Castear arpPacket para poder acceder a los campos */
+    /* Castear arpPacket para poder acceder a los campos 
     sr_ethernet_hdr_t *ethHdr = (struct sr_ethernet_hdr *)arpPacket;
 
     uint8_t *dest_mac = generate_ethernet_addr(0xff);
     memcpy(ethHdr->ether_dhost, dest_mac, ETHER_ADDR_LEN);
 
 
-    /* Enviar la solicitud por todas las interfaces por hacer broadcast */
+    /* Enviar la solicitud por todas las interfaces por hacer broadcast 
     struct sr_if *ifActual = sr->if_list;
     uint8_t *copia;
     copia = malloc(largoPaquete);
@@ -51,33 +100,33 @@ void sr_arp_request_send(struct sr_instance *sr, uint32_t ip)
     while (ifActual != NULL)
     {
 
-        /* Armar header Ethernet */
+        /* Armar header Ethernet 
         memcpy(ethHdr->ether_shost, (uint8_t *)ifActual->addr, sizeof(uint8_t) * ETHER_ADDR_LEN);
-        ethHdr->ether_type = htons(ethertype_arp); /* pasamos a big endian */
+        ethHdr->ether_type = htons(ethertype_arp); /* pasamos a big endian 
 
-        /* Armar header ARP */
+        /* Armar header ARP 
         sr_arp_hdr_t *arpHdr = (sr_arp_hdr_t *)(arpPacket + sizeof(sr_ethernet_hdr_t));
-        arpHdr->ar_hrd = htons(1); /* 1 significa Ethernet */
-        arpHdr->ar_pro = htons(2048); /* 2048 significa IPv4 */
+        arpHdr->ar_hrd = htons(1); /* 1 significa Ethernet 
+        arpHdr->ar_pro = htons(2048); /* 2048 significa IPv4 
         arpHdr->ar_hln = 6;
         arpHdr->ar_pln = 4;
         arpHdr->ar_op = htons(arp_op_request);
-        memcpy(arpHdr->ar_sha, ifActual->addr, ETHER_ADDR_LEN); /* ARP salida (MAC origen) */
-        memcpy(arpHdr->ar_tha, (char *)generate_ethernet_addr(0), ETHER_ADDR_LEN); /* ARP destino desconocida (MAC destino desconocido) */
+        memcpy(arpHdr->ar_sha, ifActual->addr, ETHER_ADDR_LEN); /* ARP salida (MAC origen) 
+        memcpy(arpHdr->ar_tha, (char *)generate_ethernet_addr(0), ETHER_ADDR_LEN); /* ARP destino desconocida (MAC destino desconocido) 
         arpHdr->ar_sip = ifActual->ip;
         arpHdr->ar_tip = ip;
 
-        /* Enviar paquete */
+        /* Enviar paquete 
         memcpy(copia, ethHdr, largoPaquete);
         sr_send_packet(sr, copia, largoPaquete, ifActual->name);
 
         ifActual = ifActual->next;
     }
 
-    /* Liberar memoria */
+    /* Liberar memoria 
     free(arpPacket);
     free(copia);
-    printf("$$$ -> Send ARP request processing complete.\n");
+    printf("$$$ -> Send ARP request processing complete.\n"); */
 }
 
 /*
@@ -115,10 +164,15 @@ void host_unreachable(struct sr_instance *sr, struct sr_arpreq *req)
 {
     /* COLOQUE SU CÓDIGO AQUÍ */
     struct sr_packet *paquete = req->packets;
-    sr_ip_hdr_t *headerIp = (sr_ip_hdr_t *) (paquete->buf + sizeof(sr_ethernet_hdr_t));
     while (paquete != NULL)
     {
-        sr_send_icmp_error_packet(3, 1, sr, headerIp->ip_src, headerIp);
+        uint8_t *paquete_original = paquete->buf;
+        if (paquete_original) {
+            /* Obtener IP origen original (offset Ethernet) */
+            sr_ip_hdr_t *orig_ip_hdr = (sr_ip_hdr_t *)(paquete_original + sizeof(sr_ethernet_hdr_t));
+            /* Enviar ICMP Host Unreachable (3,1) hacia el emisor del paquete original */
+            sr_send_icmp_error_packet(3, 1, sr, orig_ip_hdr->ip_src, paquete_original);
+        }
         paquete = paquete->next;
     }
 }
