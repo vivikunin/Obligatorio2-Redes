@@ -144,7 +144,7 @@ new_ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
     uint8_t *dest_mac = entry->mac;
     memcpy(eth_hdr->ether_dhost, dest_mac, ETHER_ADDR_LEN);
     print_hdr_ip((uint8_t *)new_ip_hdr);
-    printf("[DEBUG] Enviando ICMP error tipo %d, code %d\n", type, code);
+    printf("Sending ICMP error type %d, code %d\n", type, code);
     sr_send_packet(sr, packet, pktlen, iface->name);
     free(packet);
     free(entry);
@@ -206,6 +206,8 @@ void sr_send_icmp_echo_reply(struct sr_instance *sr,
 
   /* Enviar paquete */
   sr_send_packet(sr, new_packet, sizeof(sr_ethernet_hdr_t) + orig_ip_len, iface->name);
+  printf("ICMP Echo Reply sent.\n");
+  print_hdrs(new_packet, sizeof(sr_ethernet_hdr_t) + orig_ip_len);
 
   free(new_packet);
 
@@ -249,7 +251,7 @@ void sr_handle_ip_packet(struct sr_instance *sr,
   }
   if (interfaz_encontrada)
   {
-    printf("El paquete IP recibido es para una de mis interfaces.\n");
+    printf("The IP packet is for one of my interfaces.\n");
     /* El router debe procesar el paquete */
     if (ip_hdr->ip_p == ip_protocol_icmp)
     {
@@ -258,7 +260,7 @@ void sr_handle_ip_packet(struct sr_instance *sr,
       { /* Echo request */
         /* Construir y enviar echo reply */
         sr_send_icmp_echo_reply(sr, packet, len, if_actual->name);
-        printf("Se envió un ICMP Echo Reply.\n");
+        printf("ICMP Echo Reply sent.\n");
         print_hdrs(packet, len);
       }
     }
@@ -267,21 +269,21 @@ void sr_handle_ip_packet(struct sr_instance *sr,
     {
       /* Enviar ICMP port unreachable */
       sr_send_icmp_error_packet(3, 3, sr, ip_hdr->ip_src, packet);
-      printf("Se envió un ICMP Port Unreachable.\n");
+      printf("ICMP Port Unreachable sent.\n");
       print_hdrs(packet, len);
     }
     return;
   }
   else
   {
-    printf("El paquete IP recibido NO es para una de mis interfaces.\n");
+    printf("The received IP packet is NOT for one of my interfaces.\n");
     /* El router debe reenviar el paquete */
     /* Verificar TTL */
     if (ip_hdr->ip_ttl <= 1)
     {
       /* Enviar ICMP Time Exceeded al origen del paquete original */
       sr_send_icmp_error_packet(11, 0, sr, ip_hdr->ip_src, packet);
-      printf("Se envió un ICMP Time Exceeded.\n");
+      printf("ICMP Time Exceeded sent.\n");
       print_hdrs(packet, len);
       return;
     }
@@ -292,7 +294,7 @@ void sr_handle_ip_packet(struct sr_instance *sr,
     {
       /* No hay ruta para el destino enviar Destination net unreachable (3,0) */
       sr_send_icmp_error_packet(3, 0, sr, ip_hdr->ip_src, packet);
-      printf("Se envió un ICMP Destination Net Unreachable.\n");
+      printf("ICMP Destination Net Unreachable sent.\n");
       print_hdrs(packet, len);
       return;
     }
@@ -335,10 +337,11 @@ void sr_handle_ip_packet(struct sr_instance *sr,
       if (entry)
       {
         /* Setear MAC origen/dest y enviar */
+        printf("The next hops MAC was found in the ARP cache.\n");
         memcpy(eth_copy->ether_shost, iface->addr, ETHER_ADDR_LEN);
         memcpy(eth_copy->ether_dhost, entry->mac, ETHER_ADDR_LEN);
         sr_send_packet(sr, pkt_copy, len, iface->name);
-        printf("Paquete reenviado correctamente.\n");
+        printf("Packet successfully forwarded.\n");
         print_hdrs(pkt_copy, len);
         free(pkt_copy);
         free(entry);
@@ -349,10 +352,9 @@ void sr_handle_ip_packet(struct sr_instance *sr,
 
       /* No esta la MAC en cache, actualizar MAC origen y encolar */
       memcpy(eth_copy->ether_shost, iface->addr, ETHER_ADDR_LEN);
-      sr_arpcache_queuereq(&(sr->cache), next_hop, pkt_copy, len, iface->name); 
-      printf("MAC no encontrada en cache ARP, se encoló el paquete y se envió solicitud ARP.\n");
+      sr_arpcache_queuereq(&(sr->cache), next_hop, pkt_copy, len, iface->name);
+      printf("MAC not found in ARP cache, packet queued and ARP request sent.\n");
       print_hdrs(pkt_copy, len);
-      free(pkt_copy);
       }
     }
   }
@@ -429,6 +431,7 @@ void sr_handle_arp_packet(struct sr_instance *sr,
     /* Agrego el mapeo MAC->IP del sender a mi caché ARP */
     printf("***** -> Add MAC->IP mapping of sender to my ARP cache.\n");
     struct sr_arpreq *arpReq = sr_arpcache_insert(&(sr->cache), senderHardAddr, senderIP);
+    printf("***** -> ARP cache updated,.\n", senderHardAddr, senderIP);
 
     if (arpReq != NULL)
     { /* Si hay paquetes pendientes */
