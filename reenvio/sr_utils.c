@@ -318,11 +318,12 @@ struct sr_rt *sr_LPM(struct sr_instance *sr, uint32_t ip)
 
   while (entrada_actual != NULL)
   {
+    uint32_t mask = ntohl(entrada_actual->mask.s_addr); /* Convertir a host order */
     if ((ip & entrada_actual->mask.s_addr) == (entrada_actual->dest.s_addr & entrada_actual->mask.s_addr))
     {
-      if (entrada_actual->mask.s_addr > max_mask)
+      if (mask > max_mask)
       {
-        max_mask = entrada_actual->mask.s_addr;
+        max_mask = mask;
         lpm = entrada_actual;
       }
     }

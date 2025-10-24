@@ -66,10 +66,6 @@ void sr_send_icmp_error_packet(uint8_t type,
    * - Enviar el paquete desde la interfaz conectada a la subred de la IP destino
    */
 
-  /* Header IP del paquete original */
-  /* sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(ipPacket + sizeof(sr_ethernet_hdr_t)); */
-  /* Obtener la interfaz de salida por LPM */
-
   /* Reservar memoria para paquete Ethernet + IP + ICMP error (tipo 3/11 etc).*/
   unsigned int pktlen = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t);
   uint8_t *packet = malloc(pktlen);
@@ -97,16 +93,16 @@ void sr_send_icmp_error_packet(uint8_t type,
   sr_icmp_t3_hdr_t *icmp_hdr = (sr_icmp_t3_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
 
   /* Construir header IP */
-memset(new_ip_hdr, 0, sizeof(sr_ip_hdr_t));
+  memset(new_ip_hdr, 0, sizeof(sr_ip_hdr_t));
 
-/* Version (4 bits) y Header Length (4 bits) en el mismo byte */
-*((uint8_t *)new_ip_hdr) = (4 << 4) | 5;  /* 0x45 */
+  /* Version (4 bits) y Header Length (4 bits) en el mismo byte */
+  *((uint8_t *)new_ip_hdr) = (4 << 4) | 5;  /* 0x45 */
 
-new_ip_hdr->ip_tos = 0;
-new_ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
+  new_ip_hdr->ip_tos = 0;
+  new_ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
 
-  new_ip_hdr->ip_id = 0;                                                      /* No hay fragmentacion */
-  new_ip_hdr->ip_off = 0;                                                     /* No hay fragmentacion */
+  new_ip_hdr->ip_id = 0;    /* No hay fragmentacion */
+  new_ip_hdr->ip_off = 0;    /* No hay fragmentacion */
   new_ip_hdr->ip_ttl = 64;
   new_ip_hdr->ip_p = ip_protocol_icmp;
   new_ip_hdr->ip_src = iface->ip; /* Dirección IP de la interfaz de salida */
@@ -119,7 +115,7 @@ new_ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
   icmp_hdr->icmp_code = code;
   icmp_hdr->icmp_sum = 0;
   icmp_hdr->unused = 0;
-  icmp_hdr->next_mtu = 0; /* PREGUNTAR COMO SE COMPLETA MTU */
+  icmp_hdr->next_mtu = 0; 
 
   /* Se copia la cabecera IP original y los primeros 8 bytes del paquete original */
   uint8_t *orig_ip = ipPacket + sizeof(sr_ethernet_hdr_t);
@@ -143,7 +139,7 @@ new_ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
     /* Completar MAC destino y enviar paquete si se encuentra en cache ARP */
     uint8_t *dest_mac = entry->mac;
     memcpy(eth_hdr->ether_dhost, dest_mac, ETHER_ADDR_LEN);
-    print_hdr_ip((uint8_t *)new_ip_hdr);
+    print_hdrs(packet, pktlen);
     printf("Sending ICMP error type %d, code %d\n", type, code);
     sr_send_packet(sr, packet, pktlen, iface->name);
     free(packet);
@@ -232,7 +228,7 @@ void sr_handle_ip_packet(struct sr_instance *sr,
    * - Sino, verificar TTL, ARP y reenviar si corresponde (puede necesitar una solicitud ARP y esperar la respuesta)
    * - No olvide imprimir los mensajes de depuración
    */
-  printf("Comienza sr_handle_ip_packet\n");
+  printf("Starting sr_handle_ip_packet\n");
   sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t));
   uint32_t ipDst = ip_hdr->ip_dst;
   print_hdr_ip((uint8_t *)ip_hdr);
@@ -259,9 +255,14 @@ void sr_handle_ip_packet(struct sr_instance *sr,
       if (icmp_hdr->icmp_type == 8)
       { /* Echo request */
         /* Construir y enviar echo reply */
-        sr_send_icmp_echo_reply(sr, packet, len, if_actual->name);
-        printf("ICMP Echo Reply sent.\n");
-        print_hdrs(packet, len);
+        struct sr_rt *lpm = sr_LPM(sr, ip_hdr->ip_src);
+            if (!lpm) {
+                /* No hay ruta para responder al origen, enviar net unreachable */
+                sr_send_icmp_error_packet(3, 0, sr, ip_hdr->ip_src, packet);
+                printf("ICMP Destination Net Unreachable sent for echo reply.\n");
+                return;
+            }
+            sr_send_icmp_echo_reply(sr, packet, len, lpm->interface);
       }
     }
     /* Si es TCP o UDP enviar ICMP port unreachable */
@@ -539,7 +540,6 @@ void sr_handlepacket(struct sr_instance *sr,
     }
     else if (pktType == ethertype_ip)
     {
-      printf("Enviando a handle ip packet\n");
       sr_handle_ip_packet(sr, packet, len, srcAddr, destAddr, interface, eHdr);
     }
   }
