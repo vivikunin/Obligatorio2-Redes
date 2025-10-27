@@ -89,7 +89,7 @@ void handle_arpreq(struct sr_instance *sr, struct sr_arpreq *req)
     {
         if (req->times_sent < 5)
         {
-            sr_arp_request_send(sr, req->ip);
+            sr_arp_request_send(sr, req->ip, req->packets->iface);
             req->sent = current_time;
             req->times_sent++;
         }
