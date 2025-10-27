@@ -18,8 +18,7 @@
 /*
     Envía una solicitud ARP.
 */
-void sr_arp_request_send(struct sr_instance *sr, uint32_t ip)
-{
+void sr_arp_request_send(struct sr_instance *sr, uint32_t ip, char* iface) {
 
     printf("$$$ -> Send ARP request.\n");
 
@@ -39,16 +38,7 @@ void sr_arp_request_send(struct sr_instance *sr, uint32_t ip)
 
     /* Determinar la interfaz de salida usando LPM sobre la IP objetivo */
     struct sr_rt *lpm = sr_LPM(sr, ip);
-    struct sr_if *out_if = NULL;
-    if (lpm) {
-        out_if = sr_get_interface(sr, lpm->interface);
-    }
-
-    /* Si no encontramos LPM, no sabemos por donde enviar (no reenviamos a todas) */
-    if (!out_if) {
-        fprintf(stderr, "sr_arp_request_send: no LPM found for ip "); print_addr_ip_int(ntohl(ip));
-        return;
-    }
+    struct sr_if *out_if = sr_get_interface(sr, iface);
 
     int pkt_len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t);
     uint8_t *arpPacket = malloc(pkt_len);
@@ -79,54 +69,6 @@ void sr_arp_request_send(struct sr_instance *sr, uint32_t ip)
 
     free(arpPacket);
     printf("$$$ -> ARP request sent on iface %s\n", out_if->name);
-
-    /*version anterior
-    /* Reservar memoria para el paquete ARP 
-    *int largoPaquete = sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t);
-    uint8_t *arpPacket = malloc(largoPaquete);
-
-    /* Castear arpPacket para poder acceder a los campos 
-    sr_ethernet_hdr_t *ethHdr = (struct sr_ethernet_hdr *)arpPacket;
-
-    uint8_t *dest_mac = generate_ethernet_addr(0xff);
-    memcpy(ethHdr->ether_dhost, dest_mac, ETHER_ADDR_LEN);
-
-
-    /* Enviar la solicitud por todas las interfaces por hacer broadcast 
-    struct sr_if *ifActual = sr->if_list;
-    uint8_t *copia;
-    copia = malloc(largoPaquete);
-
-    while (ifActual != NULL)
-    {
-
-        /* Armar header Ethernet 
-        memcpy(ethHdr->ether_shost, (uint8_t *)ifActual->addr, sizeof(uint8_t) * ETHER_ADDR_LEN);
-        ethHdr->ether_type = htons(ethertype_arp); /* pasamos a big endian 
-
-        /* Armar header ARP 
-        sr_arp_hdr_t *arpHdr = (sr_arp_hdr_t *)(arpPacket + sizeof(sr_ethernet_hdr_t));
-        arpHdr->ar_hrd = htons(1); /* 1 significa Ethernet 
-        arpHdr->ar_pro = htons(2048); /* 2048 significa IPv4 
-        arpHdr->ar_hln = 6;
-        arpHdr->ar_pln = 4;
-        arpHdr->ar_op = htons(arp_op_request);
-        memcpy(arpHdr->ar_sha, ifActual->addr, ETHER_ADDR_LEN); /* ARP salida (MAC origen) 
-        memcpy(arpHdr->ar_tha, (char *)generate_ethernet_addr(0), ETHER_ADDR_LEN); /* ARP destino desconocida (MAC destino desconocido) 
-        arpHdr->ar_sip = ifActual->ip;
-        arpHdr->ar_tip = ip;
-
-        /* Enviar paquete 
-        memcpy(copia, ethHdr, largoPaquete);
-        sr_send_packet(sr, copia, largoPaquete, ifActual->name);
-
-        ifActual = ifActual->next;
-    }
-
-    /* Liberar memoria 
-    free(arpPacket);
-    free(copia);
-    printf("$$$ -> Send ARP request processing complete.\n"); */
 }
 
 /*

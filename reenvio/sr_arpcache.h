@@ -66,6 +66,7 @@ struct sr_arpreq {
     uint32_t times_sent;        /* Number of times this request was sent. You 
                                    should update this. */
     struct sr_packet *packets;  /* List of pkts waiting on this req to finish */
+    char *iface; /* Interfaz por la que se envía la ARP request */
     struct sr_arpreq *next;
 };
 
@@ -121,6 +122,6 @@ int   sr_arpcache_init(struct sr_arpcache *cache);
 int   sr_arpcache_destroy(struct sr_arpcache *cache);
 void *sr_arpcache_timeout(void *cache_ptr);
 
-void sr_arp_request_send(struct sr_instance *sr, uint32_t ip);
+void sr_arp_request_send(struct sr_instance *sr, uint32_t ip, char* iface);
 
 #endif
