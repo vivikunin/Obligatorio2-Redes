@@ -349,3 +349,30 @@ uint16_t udp_cksum(const struct sr_ip_hdr* ip_hdr, const struct sr_udp_hdr* udp_
   free(buf);
   return result;
 }
+
+
+/* Busca la entrada de la tabla de enrutamiento que tenga el prefijo más largo (LPM) que coincida con la IP dada */
+struct sr_rt *sr_LPM(struct sr_instance *sr, uint32_t ip)
+{
+  struct sr_rt *entrada_actual = sr->routing_table;
+  struct sr_rt *lpm = NULL;
+  uint32_t max_mask = 0;
+
+  while (entrada_actual != NULL)
+  {
+    uint32_t mask = ntohl(entrada_actual->mask.s_addr); /* Convertir a host order */
+    if ((ip & entrada_actual->mask.s_addr) == (entrada_actual->dest.s_addr & entrada_actual->mask.s_addr))
+    {
+      if (mask > max_mask)
+      {
+        max_mask = mask;
+        lpm = entrada_actual;
+      }
+    }
+    entrada_actual = entrada_actual->next;
+  }
+
+  return lpm;
+}
+
+

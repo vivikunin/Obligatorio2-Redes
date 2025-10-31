@@ -97,6 +97,10 @@ int sr_rip_update_route(struct sr_instance *sr,
      *
      */
 
+    if (!sr || !rte || !in_ifname) {
+        fprintf(stderr, "[RIP] Error: puntero nulo en sr_rip_update_route\n");
+        return -1;
+    }
     struct sr_rt *existing_route = NULL;
     uint32_t network = rte->ip & rte->mask; /* Calcular la red de destino */
 
@@ -231,6 +235,10 @@ void sr_handle_rip_packet(struct sr_instance *sr,
                           unsigned int rip_len,
                           const char *in_ifname)
 {
+    if (!sr || !packet || !in_ifname) {
+        fprintf(stderr, "[RIP] Error: puntero nulo en sr_handle_rip_packet\n");
+        return;
+    }
     sr_rip_packet_t *rip_packet = (struct sr_rip_packet_t *)(packet + rip_off);
 
     /* Validar paquete RIP */
@@ -272,8 +280,12 @@ void sr_handle_rip_packet(struct sr_instance *sr,
         }
         if (tabla_modificada)
         {
-            /* Generar triggered update e imprimir tabla */
-            sr_rip_send_triggered_update(sr);
+            // Triggered update: enviar RIP RESPONSE por cada interfaz a la dirección multicast
+            struct sr_if *iface = sr->if_list;
+            while (iface != NULL) {
+                sr_rip_send_response(sr, iface, htonl(RIP_IP)); 
+                iface = iface->next;
+            }
             printf("RIP routing table modified. Triggered update sent.\n");
             printf("Updated RIP routing table:\n");
             print_routing_table(sr);
@@ -283,69 +295,59 @@ void sr_handle_rip_packet(struct sr_instance *sr,
 
 void sr_rip_send_response(struct sr_instance *sr, struct sr_if *interface, uint32_t ipDst)
 {
-
-    /* Reservar buffer para paquete completo con cabecera Ethernet */
-
-
+     /* Reservar buffer para paquete completo con cabecera Ethernet */
+    
     /* Construir cabecera Ethernet */
-
-  
+    
     /* Construir cabecera IP */
-    /* RIP usa TTL=1 */
-
+        /* RIP usa TTL=1 */
+    
     /* Construir cabecera UDP */
-
+    
     /* Construir paquete RIP con las entradas de la tabla */
-    /* Armar encabezado RIP de la respuesta */
-    /* Recorrer toda la tabla de enrutamiento  */
-    /* Considerar split horizon con poisoned reverse y rutas expiradas por timeout cuando corresponda */
-    /* Normalizar métrica a rango RIP (1..INFINITY) */
+        /* Armar encabezado RIP de la respuesta */
+        /* Recorrer toda la tabla de enrutamiento  */
+        /* Considerar split horizon con poisoned reverse y rutas expiradas por timeout cuando corresponda */
+        /* Normalizar métrica a rango RIP (1..INFINITY) */
 
+        /* Armar la entrada RIP:
+           - family=2 (IPv4)
+           - route_tag desde la ruta
+           - ip/mask toman los valores de la tabla
+           - next_hop: siempre 0.0.0.0 */
+
+    /* Calcular longitudes del paquete */
+    
+    /* Calcular checksums */
+    
+    /* Enviar paquete */
+
+    if (!sr || !interface) {
+        fprintf(stderr, "[RIP] Error: puntero nulo en sr_rip_send_response\n");
+        return;
+    }
+    // 1. Contar rutas válidas
     int num_entries = 0;
     struct sr_rt *rt = sr->routing_table;
-    struct sr_rip_entry_t *entries = (struct sr_rip_entry_t *)((uint8_t *)rip_packet + sizeof(sr_rip_packet_t));
-
     while (rt != NULL) {
-
         if (rt->valid == 1) {
-            uint32_t metric = rt->metric;
-            // Split horizon con reversa envenenada
-            if (rt->learned_from == interface->ip) {
-                metric = INFINITY;
-            }
-            if (metric < 1) metric = 1;
-            if (metric > INFINITY) metric = INFINITY;
-
-            /* Armar la entrada RIP:
-            - family=2 (IPv4)
-            - route_tag desde la ruta
-            - ip/mask toman los valores de la tabla
-            - next_hop: siempre 0.0.0.0 */
-
-            entries[num_entries].family_identifier = htons(2);
-            entries[num_entries].route_tag = htons(rt->route_tag);
-            entries[num_entries].ip = htonl(rt->dest.s_addr);
-            entries[num_entries].mask = htonl(rt->mask.s_addr);
-            entries[num_entries].next_hop = htonl(0);
-            entries[num_entries].metric = htonl(metric);
-
             num_entries++;
         }
         rt = rt->next;
     }
 
-    /* Calcular longitudes del paquete */
-
+    // 2. Calcular tamaño y reservar buffer
     int packet_length = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t) + num_entries * sizeof(sr_rip_entry_t);
     uint8_t *buffer = malloc(packet_length);
 
+    // 3. Inicializar cabeceras
     sr_ethernet_hdr_t *eth_hdr = (sr_ethernet_hdr_t *)buffer;
     memset(eth_hdr, 0, sizeof(sr_ethernet_hdr_t));
     eth_hdr->ether_type = htons(ethertype_ip);
     memcpy(eth_hdr->ether_shost, interface->addr, ETHER_ADDR_LEN);
     memcpy(eth_hdr->ether_dhost, ipDst, ETHER_ADDR_LEN);
 
-    sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(buffer + sizeof(sr_ethernet_hdr_t));  
+    sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(buffer + sizeof(sr_ethernet_hdr_t));
     memset(ip_hdr, 0, sizeof(sr_ip_hdr_t));
     ip_hdr->ip_v = 4;
     ip_hdr->ip_hl = 5;
@@ -358,28 +360,63 @@ void sr_rip_send_response(struct sr_instance *sr, struct sr_if *interface, uint3
     memset(udp_hdr, 0, sizeof(sr_udp_hdr_t));
     udp_hdr->src_port = htons(RIP_PORT);
     udp_hdr->dst_port = htons(RIP_PORT);
-    udp_hdr->length = htons(sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t));
-    udp_hdr->checksum = 0; 
+    udp_hdr->length = htons(sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t) + num_entries * sizeof(sr_rip_entry_t));
+    udp_hdr->checksum = 0;
 
+    // 4. Inicializar encabezado RIP
     struct sr_rip_packet_t *rip_packet = (sr_rip_packet_t *)(buffer + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_udp_hdr_t));
     rip_packet->command = RIP_COMMAND_RESPONSE;
     rip_packet->version = RIP_VERSION;
     rip_packet->zero = 0;
 
-    /* Calcular checksums */
-    udp_hdr->checksum = udp_checksum(udp_hdr, sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t));
-    ip_hdr->ip_sum = ip_checksum(ip_hdr, sizeof(sr_ip_hdr_t));
+    // 5. Inicializar entradas RIP
+    struct sr_rip_entry_t *entries = (struct sr_rip_entry_t *)((uint8_t *)rip_packet + sizeof(sr_rip_packet_t));
+    rt = sr->routing_table;
+    int entry_idx = 0;
+    while (rt != NULL) {
+        if (rt->valid == 1) {
+            uint32_t metric = rt->metric;
+            // Split horizon con poisoned reverse
+            if (rt->learned_from == interface->ip) {
+                metric = INFINITY;
+            }
+            if (metric < 1) metric = 1;
+            if (metric > INFINITY) metric = INFINITY;
 
-    /* Enviar paquete */
+            entries[entry_idx].family_identifier = htons(2);
+            entries[entry_idx].route_tag = htons(rt->route_tag);
+            entries[entry_idx].ip = htonl(rt->dest.s_addr);
+            entries[entry_idx].mask = htonl(rt->mask.s_addr);
+            entries[entry_idx].next_hop = htonl(0);
+            entries[entry_idx].metric = htonl(metric);
 
+            entry_idx++;
+        }
+        rt = rt->next;
+    }
+
+    // 6. Calcular checksums
+    udp_hdr->checksum = udp_cksum(ip_hdr, udp_hdr, (uint8_t *)rip_packet + sizeof(sr_rip_packet_t));
+    ip_hdr->ip_sum = ip_cksum(ip_hdr, sizeof(sr_ip_hdr_t));
+
+    // 7. Enviar paquete
     sr_send_packet(sr, buffer, packet_length, interface->name);
 
+    free(buffer);
 }
 
 void *sr_rip_send_requests(void *arg)
 {
     sleep(3); // Esperar a que se inicialice todo
+    if (!arg) {
+        fprintf(stderr, "[RIP] Error: puntero nulo en sr_rip_send_requests\n");
+        return NULL;
+    }
     struct sr_instance *sr = arg;
+    if (!sr) {
+        fprintf(stderr, "[RIP] Error: sr nulo en sr_rip_send_requests\n");
+        return NULL;
+    }
     struct sr_if *interface = sr->if_list;
     while (interface != NULL) {
         // Un request por cada interfaz
@@ -393,15 +430,15 @@ void *sr_rip_send_requests(void *arg)
         memcpy(eth_hdr->ether_shost, interface->addr, ETHER_ADDR_LEN);
         memcpy(eth_hdr->ether_dhost, rip_multicast_mac, ETHER_ADDR_LEN);
 
-    /* Construir cabecera IP */
-    sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(pkt + sizeof(sr_ethernet_hdr_t));
-    memset(ip_hdr, 0, sizeof(sr_ip_hdr_t));
-    ip_hdr->ip_v = 4; /* version */
-    ip_hdr->ip_hl = 5; /* header length */
-    ip_hdr->ip_ttl = 1; /* RIP usa TTL=1 */
-    ip_hdr->ip_src = interface->ip;
-    ip_hdr->ip_dst = htonl(RIP_IP);
-    ip_hdr->ip_p = ip_protocol_udp;
+        /* Construir cabecera IP */
+        sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(pkt + sizeof(sr_ethernet_hdr_t));
+        memset(ip_hdr, 0, sizeof(sr_ip_hdr_t));
+        ip_hdr->ip_v = 4; /* version */
+        ip_hdr->ip_hl = 5; /* header length */
+        ip_hdr->ip_ttl = 1; /* RIP usa TTL=1 */
+        ip_hdr->ip_src = interface->ip;
+        ip_hdr->ip_dst = htonl(RIP_IP);
+        ip_hdr->ip_p = ip_protocol_udp;
 
         // UDP
         sr_udp_hdr_t *udp_hdr = (sr_udp_hdr_t *)(pkt + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
@@ -426,8 +463,8 @@ void *sr_rip_send_requests(void *arg)
         entry->metric = htonl(INFINITY);
 
         // Checksums
-        udp_hdr->checksum = udp_checksum(udp_hdr, sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t) + sizeof(sr_rip_entry_t));
-        ip_hdr->ip_sum = ip_checksum(ip_hdr, sizeof(sr_ip_hdr_t));
+        udp_hdr->checksum = udp_cksum(ip_hdr, udp_hdr, (uint8_t *)rip_packet + sizeof(sr_rip_packet_t));
+        ip_hdr->ip_sum = ip_cksum(ip_hdr, sizeof(sr_ip_hdr_t));
 
         // Enviar paquete
         sr_send_packet(sr, pkt, packet_length, interface->name);
@@ -436,53 +473,19 @@ void *sr_rip_send_requests(void *arg)
     }
 }
 
-void *sr_rip_send_requests(void *arg)
-{
-    sleep(3); // Esperar a que se inicialice todo
-    struct sr_instance *sr = arg;
-    struct sr_if *interface = sr->if_list;
-    // Se envia un Request RIP por cada interfaz:
-    /* Reservar buffer para paquete completo con cabecera Ethernet */
-
-    /* Construir cabecera Ethernet */
-
-    /* Construir cabecera IP */
-    /* RIP usa TTL=1 */
-
-    /* Construir cabecera UDP */
-
-    /* Construir paquete RIP */
-
-    /* Entrada para solicitar la tabla de ruteo completa (ver RFC) */
-
-    /* Calcular longitudes del paquete */
-
-    /* Calcular checksums */
-
-    /* Enviar paquete */
-
-    int entries = 0;
-    struct sr_rt *rt = sr->routing_table;
-    while (rt != NULL)
-    {
-        entries++;
-        rt = rt->next;
-    }
-
-    int packet_length = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t) + entries * sizeof(sr_rip_entry_t);
-    uint8_t *pkt = malloc(packet_length);
-
-    sr_ethernet_hdr_t *eth_hdr = (sr_ethernet_hdr_t *)pkt;
-    memset(eth_hdr, 0, sizeof(sr_ethernet_hdr_t));
-    eth_hdr->ether_type = htons(ethertype_ip);
-
-    return NULL;
-}
 
 /* Periodic advertisement thread */
 void *sr_rip_periodic_advertisement(void *arg)
 {
+    if (!arg) {
+        fprintf(stderr, "[RIP] Error: puntero nulo en sr_rip_periodic_advertisement\n");
+        return NULL;
+    }
     struct sr_instance *sr = arg;
+    if (!sr) {
+        fprintf(stderr, "[RIP] Error: sr nulo en sr_rip_periodic_advertisement\n");
+        return NULL;
+    }
 
     sleep(2); // Esperar a que se inicialice todo
 
@@ -551,7 +554,15 @@ void *sr_rip_periodic_advertisement(void *arg)
 /* Chequea las rutas y marca las que expiran por timeout */
 void *sr_rip_timeout_manager(void *arg)
 {
+    if (!arg) {
+        fprintf(stderr, "[RIP] Error: puntero nulo en sr_rip_timeout_manager\n");
+        return NULL;
+    }
     struct sr_instance *sr = arg;
+    if (!sr) {
+        fprintf(stderr, "[RIP] Error: sr nulo en sr_rip_timeout_manager\n");
+        return NULL;
+    }
 
     /*  - Bucle periódico que espera 1 segundo entre comprobaciones.
         - Recorre la tabla de enrutamiento y para cada ruta dinámica (aprendida de un vecino) que no se haya actualizado
@@ -581,19 +592,37 @@ void *sr_rip_timeout_manager(void *arg)
             it = it->next;
         }
         pthread_mutex_unlock(&rip_metadata_lock);
-        if (modified > 0)
+        if (modified>0)
         {
-            sr_rip_send_triggered_update(sr);
+            // Triggered update: enviar RIP RESPONSE por cada interfaz a la dirección multicast
+            struct sr_if *iface = sr->if_list;
+            while (iface != NULL) {
+                sr_rip_send_response(sr, iface, htonl(RIP_IP)); 
+                iface = iface->next;
+            }
+            printf("RIP routing table modified. Triggered update sent.\n");
+            printf("Updated RIP routing table:\n");
             print_routing_table(sr);
         }
+        
         sleep(1);
+
+        
     }
 }
 
 /* Chequea las rutas marcadas como garbage collection y las elimina si expira el timer */
 void *sr_rip_garbage_collection_manager(void *arg)
 {
+    if (!arg) {
+        fprintf(stderr, "[RIP] Error: puntero nulo en sr_rip_garbage_collection_manager\n");
+        return NULL;
+    }
     struct sr_instance *sr = arg;
+    if (!sr) {
+        fprintf(stderr, "[RIP] Error: sr nulo en sr_rip_garbage_collection_manager\n");
+        return NULL;
+    }
     /*
         - Bucle infinito que espera 1 segundo entre comprobaciones.
         - Recorre la tabla de enrutamiento y elimina aquellas rutas que:
@@ -632,6 +661,10 @@ void *sr_rip_garbage_collection_manager(void *arg)
 int sr_rip_init(struct sr_instance *sr)
 {
     /* Inicializar mutex */
+    if (!sr) {
+        fprintf(stderr, "[RIP] Error: sr nulo en sr_rip_init\n");
+        return -1;
+    }
     if (pthread_mutex_init(&sr->rip_subsys.lock, NULL) != 0)
     {
         printf("RIP: Error initializing mutex\n");
