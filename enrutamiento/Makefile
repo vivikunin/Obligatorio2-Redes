@@ -32,7 +32,7 @@ ARCH = -D_DARWIN_
 SOCK = -lresolv
 endif
 
-CFLAGS = -g -Wall -std=gnu11 -D_DEBUG_ -D_GNU_SOURCE $(ARCH)
+CFLAGS = -g -Wall -std=gnu11 -D_DEBUG_ -D_GNU_SOURCE $(ARCH) -DENABLE_POISONED_REVERSE=1 -DENABLE_TRIGGERED_UPDATE=1
 
 LIBS= $(SOCK) -lm -lpthread
 PFLAGS= -follow-child-processes=yes -cache-dir=/tmp/${USER} 

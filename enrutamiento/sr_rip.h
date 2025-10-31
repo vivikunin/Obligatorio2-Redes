@@ -22,6 +22,9 @@
 #define RIP_ADVERT_INTERVAL_SEC 10
 #define RIP_TIMEOUT_SEC 60
 #define RIP_GARBAGE_COLLECTION_SEC 40
+#define ENABLE_POISONED_REVERSE 1
+// Bandera para habilitar/deshabilitar triggered updates
+#define ENABLE_TRIGGERED_UPDATE 1
 
 struct sr_rip_subsys
 {

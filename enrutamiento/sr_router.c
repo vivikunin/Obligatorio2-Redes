@@ -231,6 +231,9 @@ void sr_handle_ip_packet(struct sr_instance *sr,
 
   /* Buscar interfaz en las interfaces del router */
   int interfaz_encontrada = 0;
+  if (ipDst == htonl(RIP_IP)) {
+    interfaz_encontrada = 1;
+}
   struct sr_if *if_actual = sr->if_list;
   while (if_actual != NULL && interfaz_encontrada == 0)
   {
@@ -262,8 +265,19 @@ void sr_handle_ip_packet(struct sr_instance *sr,
       }
     }
     /* Si es TCP o UDP enviar ICMP port unreachable */
-    else if (ip_hdr->ip_p == 6 || ip_hdr->ip_p == 17)
+    else if (ip_hdr->ip_p == 6 || ip_hdr->ip_p == ip_protocol_udp)
     {
+      if (ip_hdr->ip_p == ip_protocol_udp) { 
+        /* Verificar si es un paquete RIP */
+          sr_udp_hdr_t *udp_hdr = (sr_udp_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
+          if (ntohs(udp_hdr->dst_port) == RIP_PORT) {
+              unsigned int ip_off = sizeof(sr_ethernet_hdr_t);
+              unsigned int rip_off = ip_off + sizeof(sr_ip_hdr_t) + sizeof(sr_udp_hdr_t);
+              unsigned int rip_len = len - rip_off;
+              sr_handle_rip_packet(sr, packet, len, ip_off, rip_off, rip_len, interface);
+              return;
+          }
+      }
       /* Enviar ICMP port unreachable */
       sr_send_icmp_error_packet(3, 3, sr, ip_hdr->ip_src, packet);
       printf("ICMP Port Unreachable sent.\n");
