@@ -116,7 +116,7 @@ int is_packet_valid(uint8_t *packet /* lent */,
   }
 
   printf("*** -> Packet validation complete. Packet is INVALID.\n");
-  return 0;
+  return 1;
 }
 
 /* Helper function for sr_arp_request_send to generate
