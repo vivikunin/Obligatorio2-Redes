@@ -354,25 +354,32 @@ uint16_t udp_cksum(const struct sr_ip_hdr* ip_hdr, const struct sr_udp_hdr* udp_
 /* Busca la entrada de la tabla de enrutamiento que tenga el prefijo más largo (LPM) que coincida con la IP dada */
 struct sr_rt *sr_LPM(struct sr_instance *sr, uint32_t ip)
 {
-  struct sr_rt *entrada_actual = sr->routing_table;
-  struct sr_rt *lpm = NULL;
-  uint32_t max_mask = 0;
+    struct sr_rt *entrada_actual = sr->routing_table;
+    struct sr_rt *lpm = NULL;
+    uint32_t max_mask = 0;
 
-  while (entrada_actual != NULL)
-  {
-    uint32_t mask = ntohl(entrada_actual->mask.s_addr); /* Convertir a host order */
-    if ((ip & entrada_actual->mask.s_addr) == (entrada_actual->dest.s_addr & entrada_actual->mask.s_addr))
+    /* ip is expected in network byte order; convert to host order for bitwise ops */
+    uint32_t ip_host = ntohl(ip);
+
+    while (entrada_actual != NULL)
     {
-      if (mask > max_mask)
-      {
-        max_mask = mask;
-        lpm = entrada_actual;
-      }
-    }
-    entrada_actual = entrada_actual->next;
-  }
+        /* routing table entries are stored in network byte order (struct in_addr.s_addr)
+           convert them to host order for comparisons */
+        uint32_t mask = ntohl(entrada_actual->mask.s_addr);
+        uint32_t dest = ntohl(entrada_actual->dest.s_addr);
 
-  return lpm;
+        if ((ip_host & mask) == (dest & mask))
+        {
+            if (mask > max_mask)
+            {
+                max_mask = mask;
+                lpm = entrada_actual;
+            }
+        }
+        entrada_actual = entrada_actual->next;
+    }
+
+    return lpm;
 }
 
 

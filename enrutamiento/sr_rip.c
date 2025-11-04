@@ -102,10 +102,17 @@ int sr_rip_update_route(struct sr_instance *sr,
         fprintf(stderr, "[RIP] Error: puntero nulo en sr_rip_update_route\n");
         return -1;
     }
-    struct sr_rt *existing_route = NULL;
-    uint32_t network = rte->ip & rte->mask; /* Calcular la red de destino */
 
-    if (rte->metric >= 16)
+    // Convertir todos los campos de la entrada RIP a host order
+    uint32_t ip = ntohl(rte->ip);
+    uint32_t mask = ntohl(rte->mask);
+    uint32_t metric = ntohl(rte->metric);
+    uint16_t route_tag = ntohs(rte->route_tag);
+    uint32_t network = ip & mask;
+
+    struct sr_rt *existing_route = NULL;
+
+    if (metric >= 16)
     {
         /* Buscar si existe una ruta para esta red en la tabla */
 
@@ -114,7 +121,7 @@ int sr_rip_update_route(struct sr_instance *sr,
         for (struct sr_rt *rt = sr->routing_table; rt != NULL; rt = rt->next)
         {
             /* Verificar si coincide la red y la máscara */
-            if (rt->dest.s_addr == network && rt->mask.s_addr == rte->mask)
+            if (ntohl(rt->dest.s_addr) == network && ntohl(rt->mask.s_addr) == mask)
             {
                 existing_route = rt;
                 break;
@@ -122,7 +129,7 @@ int sr_rip_update_route(struct sr_instance *sr,
         }
 
         /* Verificar si fue aprendida del mismo vecino */
-        if (existing_route != NULL && existing_route->learned_from == src_ip)
+        if (existing_route != NULL && existing_route->learned_from == htonl(src_ip))
         {
             /* Esta ruta existe y fue aprendida desde el mismo vecino (src_ip) */
             existing_route->metric = INFINITY;
@@ -143,16 +150,18 @@ int sr_rip_update_route(struct sr_instance *sr,
         return -1; /* Fallo al obtener la interfaz */
     }
 
-    uint8_t new_metric = rte->metric + (in_if->cost ? in_if->cost : 1); /*+++++*/
-    if (new_metric >= 16)
-    {
+    uint8_t new_metric = metric + (in_if->cost ? in_if->cost : 1);
+    if (new_metric >= 16) {
+        printf("New metric >= 16, discarding update.\n");
         return 0; /* Descartar actualización */
     }
+
     pthread_mutex_lock(&rip_metadata_lock);
     for (struct sr_rt *rt = sr->routing_table; rt != NULL; rt = rt->next)
     {
-        /* Verificar si coincide la red y la máscara */
-        if (rt->dest.s_addr == network && rt->mask.s_addr == rte->mask)
+        /* Verificar si coincide la red y la máscara (convertir campos de la tabla a host order)
+           rt->dest.s_addr y rt->mask.s_addr están en network order */
+        if (ntohl(rt->dest.s_addr) == network && ntohl(rt->mask.s_addr) == mask)
         {
             existing_route = rt;
             break;
@@ -162,13 +171,14 @@ int sr_rip_update_route(struct sr_instance *sr,
     {
         /* Insertar nueva entrada en la tabla de enrutamiento */
         struct sr_rt *new_route = malloc(sizeof(struct sr_rt));
-        new_route->dest.s_addr = rte->ip & rte->mask;
-        new_route->mask.s_addr = rte->mask;
-        new_route->gw.s_addr = src_ip;
+        /* store dest/mask/gw in network byte order */
+        new_route->dest.s_addr = htonl(network);
+        new_route->mask.s_addr = htonl(mask);
+        new_route->gw.s_addr = htonl(src_ip);
         strncpy(new_route->interface, in_ifname, sr_IFACE_NAMELEN);
         new_route->metric = new_metric;
-        new_route->route_tag = ntohs(rte->route_tag);
-        new_route->learned_from = src_ip;
+        new_route->route_tag = route_tag;
+        new_route->learned_from = htonl(src_ip);
         new_route->last_updated = time(NULL);
         new_route->valid = 1;
         new_route->garbage_collection_time = 0;
@@ -177,23 +187,24 @@ int sr_rip_update_route(struct sr_instance *sr,
         new_route->next = sr->routing_table;
         sr->routing_table = new_route;
 
+        pthread_mutex_unlock(&rip_metadata_lock);
         return 1; /* Tabla modificada */
     } else if (existing_route->valid == 0) {
         /* Revivir ruta inválida */
         existing_route->metric = new_metric;
-        existing_route->gw.s_addr = src_ip;
-        existing_route->learned_from = src_ip;
+        existing_route->gw.s_addr = htonl(src_ip);
+        existing_route->learned_from = htonl(src_ip);
         existing_route->last_updated = time(NULL);
         existing_route->valid = 1;
         existing_route->garbage_collection_time = 0;
 
         pthread_mutex_unlock(&rip_metadata_lock);
         return 1; /* Tabla modificada */
-    } else if (existing_route->learned_from == src_ip) {
+    } else if (existing_route->learned_from == htonl(src_ip)) {
         /* Actualizar si cambia métrica/gateway */
-        if (existing_route->metric != new_metric || existing_route->gw.s_addr != src_ip) {
+        if (existing_route->metric != new_metric || existing_route->gw.s_addr != htonl(src_ip)) {
             existing_route->metric = new_metric;
-            existing_route->gw.s_addr = src_ip;
+            existing_route->gw.s_addr = htonl(src_ip);
             existing_route->last_updated = time(NULL);
 
             pthread_mutex_unlock(&rip_metadata_lock);
@@ -210,13 +221,13 @@ int sr_rip_update_route(struct sr_instance *sr,
         if (new_metric < existing_route->metric) {
             /* Reemplazar ruta */
             existing_route->metric = new_metric;
-            existing_route->gw.s_addr = src_ip;
-            existing_route->learned_from = src_ip;
+            existing_route->gw.s_addr = htonl(src_ip);
+            existing_route->learned_from = htonl(src_ip);
             existing_route->last_updated = time(NULL);
 
             pthread_mutex_unlock(&rip_metadata_lock);
             return 1; /* Tabla modificada */
-        } else if (new_metric == existing_route->metric && existing_route->gw.s_addr == src_ip) {
+        } else if (new_metric == existing_route->metric && existing_route->gw.s_addr == htonl(src_ip)) {
             /* Refrescar entrada */
             existing_route->last_updated = time(NULL);
 
@@ -224,7 +235,7 @@ int sr_rip_update_route(struct sr_instance *sr,
             return 0; /* No se realizaron cambios */
         }
     }
-
+    pthread_mutex_unlock(&rip_metadata_lock);
     return 0;
 }
 
@@ -261,7 +272,9 @@ void sr_handle_rip_packet(struct sr_instance *sr,
     if (rip_packet->command == RIP_COMMAND_REQUEST)
     {
         struct sr_if *interfaz_llegada = sr_get_interface(sr, in_ifname);
-        sr_rip_send_response(sr, interfaz_llegada, ntohl(((sr_ip_hdr_t *)(packet + ip_off))->ip_src)); /*Envía a la ip de origen del paquete la respuesta*/
+        sr_ip_hdr_t *ip_orig_rip_pkt = (sr_ip_hdr_t *)(packet + ip_off);
+    /* ip_orig_rip_pkt->ip_src is network order; sr_rip_send_response expects network order */
+    sr_rip_send_response(sr, interfaz_llegada, ip_orig_rip_pkt->ip_src); /*Envía a la ip de origen del paquete la respuesta*/
         return;
     }
     else
@@ -429,8 +442,9 @@ void sr_rip_send_response(struct sr_instance *sr, struct sr_if *interface, uint3
 
             entries[entry_idx].family_identifier = AF_INET;
             entries[entry_idx].route_tag = htons(rt->route_tag);
-            entries[entry_idx].ip = htonl(rt->dest.s_addr);
-            entries[entry_idx].mask = htonl(rt->mask.s_addr);
+            /* rt->dest.s_addr and rt->mask.s_addr are already in network byte order */
+            entries[entry_idx].ip = rt->dest.s_addr;
+            entries[entry_idx].mask = rt->mask.s_addr;
             entries[entry_idx].next_hop = htonl(0);
             entries[entry_idx].metric = htonl(metric);
 
@@ -446,6 +460,7 @@ void sr_rip_send_response(struct sr_instance *sr, struct sr_if *interface, uint3
     ip_hdr->ip_sum = ip_cksum(ip_hdr, sizeof(sr_ip_hdr_t));
 
     // 7. Enviar paquete
+    printf("[RIP DEBUG] Enviando paquete RIP RESPONSE por la interfaz %s\n", interface->name);
     sr_send_packet(sr, buffer, packet_length, interface->name);
 
     free(buffer);
