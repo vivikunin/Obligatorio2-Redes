@@ -53,6 +53,9 @@ void print_hdr_arp(uint8_t *buf);
 void print_hdrs(uint8_t *buf, uint32_t length);
 void print_routing_table(struct sr_instance* sr);
 
+/* Calcula el LPM */
+struct sr_rt *sr_LPM(struct sr_instance *sr, uint32_t ip);
+
 // PARTE 2
 uint16_t udp_cksum(const struct sr_ip_hdr* ip_hdr, const struct sr_udp_hdr* udp_hdr, const uint8_t* payload);
 

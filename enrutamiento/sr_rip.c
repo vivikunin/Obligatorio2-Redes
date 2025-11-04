@@ -540,11 +540,6 @@ void *sr_rip_send_requests(void *arg)
 /* Periodic advertisement thread */
 void *sr_rip_periodic_advertisement(void *arg)
 {
-    printf("[DEBUG] Comenzando sr_rip_periodic_advertisement\n");
-    if (!arg) {
-        fprintf(stderr, "[RIP] Error: puntero nulo en sr_rip_periodic_advertisement\n");
-        return NULL;
-    }
     struct sr_instance *sr = arg;
     if (!sr) {
         fprintf(stderr, "[RIP] Error: sr nulo en sr_rip_periodic_advertisement\n");
