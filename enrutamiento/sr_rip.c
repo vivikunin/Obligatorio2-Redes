@@ -97,7 +97,6 @@ int sr_rip_update_route(struct sr_instance *sr,
      *  -  0: no se realizaron cambios.
      *
      */
-    printf("[DEBUG] Comenzando sr_rip_update_route\n");
     if (!sr || !rte || !in_ifname) {
         fprintf(stderr, "[RIP] Error: puntero nulo en sr_rip_update_route\n");
         return -1;
@@ -152,7 +151,6 @@ int sr_rip_update_route(struct sr_instance *sr,
 
     uint8_t new_metric = metric + (in_if->cost ? in_if->cost : 1);
     if (new_metric >= 16) {
-        printf("New metric >= 16, discarding update.\n");
         return 0; /* Descartar actualización */
     }
 
@@ -247,7 +245,6 @@ void sr_handle_rip_packet(struct sr_instance *sr,
                           unsigned int rip_len,
                           const char *in_ifname)
 {
-    printf("[DEBUG] Comenzando sr_handle_rip_packet\n");
     if (!sr || !packet || !in_ifname) {
         fprintf(stderr, "[RIP] Error: puntero nulo en sr_handle_rip_packet\n");
         return;
@@ -339,8 +336,6 @@ void sr_rip_send_response(struct sr_instance *sr, struct sr_if *interface, uint3
     
     /* Enviar paquete */
 
-    printf("[DEBUG] Comenzando sr_rip_send_response\n");
-
     if (!sr || !interface) {
         printf("[DEBUG] sr o interface es NULL\n");
         fprintf(stderr, "[RIP] Error: puntero nulo en sr_rip_send_response\n");
@@ -368,7 +363,7 @@ void sr_rip_send_response(struct sr_instance *sr, struct sr_if *interface, uint3
         int packet_length = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t) + num_entries * sizeof(sr_rip_entry_t);
         int ip_len = packet_length - sizeof(sr_ethernet_hdr_t);
         int udp_len = sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t) + num_entries * sizeof(sr_rip_entry_t);
-        printf("[RIP DEBUG] num_entries=%d, packet_length=%d, ip_len=%d, udp_len=%d\n", num_entries, packet_length, ip_len, udp_len);
+        printf("Enviando RIP response con: num_entries=%d, packet_length=%d, ip_len=%d, udp_len=%d\n", num_entries, packet_length, ip_len, udp_len);
 
         /* Calcular tamaño y reservar buffer */
         uint8_t *buffer = malloc(packet_length);
@@ -394,7 +389,7 @@ void sr_rip_send_response(struct sr_instance *sr, struct sr_if *interface, uint3
             free(buffer);
             return;
         }
-        printf("[DEBUG] MAC de destino encontrada en la cache ARP\n");
+        printf("MAC de destino encontrada en la cache ARP\n");
         memcpy(eth_hdr->ether_dhost, arp_entry->mac, ETHER_ADDR_LEN);
         free(arp_entry);
     }
@@ -460,7 +455,7 @@ void sr_rip_send_response(struct sr_instance *sr, struct sr_if *interface, uint3
     ip_hdr->ip_sum = ip_cksum(ip_hdr, sizeof(sr_ip_hdr_t));
 
     // 7. Enviar paquete
-    printf("[RIP DEBUG] Enviando paquete RIP RESPONSE por la interfaz %s\n", interface->name);
+    printf("Enviando paquete RIP RESPONSE por la interfaz %s\n", interface->name);
     sr_send_packet(sr, buffer, packet_length, interface->name);
 
     free(buffer);
@@ -482,9 +477,11 @@ void *sr_rip_send_requests(void *arg)
     }
     struct sr_if *interface = sr->if_list;
     while (interface != NULL) {
-        // Un request por cada interfaz
-        int packet_length = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t) + sizeof(sr_rip_entry_t);
-        uint8_t *pkt = malloc(packet_length);
+    // Un request por cada interfaz
+    int udp_len = sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t) + sizeof(sr_rip_entry_t);
+    int ip_len = sizeof(sr_ip_hdr_t) + udp_len;
+    int packet_length = sizeof(sr_ethernet_hdr_t) + ip_len;
+    uint8_t *pkt = malloc(packet_length);
 
         // Ethernet
         sr_ethernet_hdr_t *eth_hdr = (sr_ethernet_hdr_t *)pkt;
@@ -496,20 +493,21 @@ void *sr_rip_send_requests(void *arg)
         /* Construir cabecera IP */
         sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(pkt + sizeof(sr_ethernet_hdr_t));
         memset(ip_hdr, 0, sizeof(sr_ip_hdr_t));
-        ip_hdr->ip_v = 4; /* version */
-        ip_hdr->ip_hl = 5; /* header length */
-        ip_hdr->ip_ttl = 1; /* RIP usa TTL=1 */
-        ip_hdr->ip_src = interface->ip;
-        ip_hdr->ip_dst = htonl(RIP_IP);
-        ip_hdr->ip_p = ip_protocol_udp;
+    ip_hdr->ip_v = 4; /* version */
+    ip_hdr->ip_hl = 5; /* header length */
+    ip_hdr->ip_ttl = 1; /* RIP usa TTL=1 */
+    ip_hdr->ip_src = interface->ip;
+    ip_hdr->ip_dst = htonl(RIP_IP);
+    ip_hdr->ip_p = ip_protocol_udp;
+    ip_hdr->ip_len = htons(ip_len);
 
         // UDP
         sr_udp_hdr_t *udp_hdr = (sr_udp_hdr_t *)(pkt + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
         memset(udp_hdr, 0, sizeof(sr_udp_hdr_t));
-        udp_hdr->src_port = htons(RIP_PORT);
-        udp_hdr->dst_port = htons(RIP_PORT);
-        udp_hdr->length = htons(sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t) + sizeof(sr_rip_entry_t));
-        udp_hdr->checksum = 0;
+    udp_hdr->src_port = htons(RIP_PORT);
+    udp_hdr->dst_port = htons(RIP_PORT);
+    udp_hdr->length = htons(udp_len);
+    udp_hdr->checksum = 0;
 
         // RIP Request
         struct sr_rip_packet_t *rip_packet = (sr_rip_packet_t *)(pkt + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_udp_hdr_t));
@@ -525,9 +523,10 @@ void *sr_rip_send_requests(void *arg)
         entry->next_hop = 0;
         entry->metric = htonl(INFINITY);
 
-        // Checksums
-        udp_hdr->checksum = udp_cksum(ip_hdr, udp_hdr, (uint8_t *)rip_packet + sizeof(sr_rip_packet_t));
-        ip_hdr->ip_sum = ip_cksum(ip_hdr, sizeof(sr_ip_hdr_t));
+    // Checksums
+    udp_hdr->checksum = 0;
+    udp_hdr->checksum = udp_cksum(ip_hdr, udp_hdr, (uint8_t *)rip_packet);
+    ip_hdr->ip_sum = ip_cksum(ip_hdr, sizeof(sr_ip_hdr_t));
 
         // Enviar paquete
         sr_send_packet(sr, pkt, packet_length, interface->name);
@@ -564,13 +563,27 @@ void *sr_rip_periodic_advertisement(void *arg)
         network.s_addr = ip.s_addr & mask.s_addr;
         uint8_t metric = int_temp->cost ? int_temp->cost : 1;
 
-        for (struct sr_rt *it = sr->routing_table; it; it = it->next)
-        {
-            if (it->dest.s_addr == network.s_addr && it->mask.s_addr == mask.s_addr)
-                sr_del_rt_entry(&sr->routing_table, it);
+        /* Remove matching entries safely while iterating */
+        struct sr_rt *prev = NULL;
+        struct sr_rt *it = sr->routing_table;
+        while (it != NULL) {
+            struct sr_rt *next = it->next;
+            if (it->dest.s_addr == network.s_addr && it->mask.s_addr == mask.s_addr) {
+                /* remove it */
+                if (prev == NULL) {
+                    /* head */
+                    sr->routing_table = next;
+                    free(it);
+                } else {
+                    prev->next = next;
+                    free(it);
+                }
+            } else {
+                prev = it;
+            }
+            it = next;
         }
-        Debug("-> RIP: Adding the directly connected network [%s, ", inet_ntoa(network));
-        Debug("%s] to the routing table\n", inet_ntoa(mask));
+
         sr_add_rt_entry(sr,
                         network,
                         gw,
@@ -586,7 +599,6 @@ void *sr_rip_periodic_advertisement(void *arg)
     }
 
     pthread_mutex_unlock(&rip_metadata_lock);
-    Debug("\n-> RIP: Printing the forwarding table\n");
     print_routing_table(sr);
     /************************************************************************************/
 
@@ -597,14 +609,14 @@ void *sr_rip_periodic_advertisement(void *arg)
         utilizando la dirección de multicast definida (RIP_IP).
         Esto implementa el envío periódico de rutas (anuncios no solicitados) en RIPv2.
     */
-   printf("[DEBUG] Entrando a loop de anuncios periódicos\n");
+   printf("Entrando a loop de anuncios periódicos\n");
     while (1)
     {
         sleep(RIP_ADVERT_INTERVAL_SEC);
         struct sr_if *interface = sr->if_list;
         while (interface != NULL)
         {
-            printf("[DEBUG] Llamando a sr_rip_send_response con interface=%p\n", (void*)interface->name);
+            printf("Enviando anuncio RIP periódico por la interfaz %s\n", interface->name);
             sr_rip_send_response(sr, interface, htonl(RIP_IP));
             interface = interface->next;
         }
@@ -615,7 +627,6 @@ void *sr_rip_periodic_advertisement(void *arg)
 /* Chequea las rutas y marca las que expiran por timeout */
 void *sr_rip_timeout_manager(void *arg)
 {
-    printf("[DEBUG] Comenzando sr_rip_timeout_manager\n");
     if (!arg) {
         fprintf(stderr, "[RIP] Error: puntero nulo en sr_rip_timeout_manager\n");
         return NULL;
@@ -703,16 +714,27 @@ void *sr_rip_garbage_collection_manager(void *arg)
     pthread_mutex_lock(&rip_metadata_lock);
     time_t current_time = time(NULL);
     int deleted = 0;
+    struct sr_rt *prev = NULL;
     struct sr_rt *it = sr->routing_table;
-    while (it!=NULL)
+    while (it != NULL)
     {
+        struct sr_rt *next = it->next;
         if (it->valid == 0 && current_time >= it->garbage_collection_time + RIP_GARBAGE_COLLECTION_SEC)
         {
-            /* Eliminar ruta */
-            sr_del_rt_entry(&sr->routing_table, it);
-            deleted ++;
+            /* Eliminar ruta de forma segura */
+            if (prev == NULL) {
+                /* head */
+                sr->routing_table = next;
+                free(it);
+            } else {
+                prev->next = next;
+                free(it);
+            }
+            deleted++;
+        } else {
+            prev = it;
         }
-        it = it->next;
+        it = next;
     }
     pthread_mutex_unlock(&rip_metadata_lock);
     if (deleted > 0)
