@@ -179,7 +179,7 @@ void sr_add_rt_entry(struct sr_instance* sr,
     rt_walker->learned_from = learned_from;
     rt_walker->last_updated = last_updated;
     rt_walker->valid        = expired;
-    rt_walker->garbage_collection_time      = garbage_collection_time;
+    rt_walker->garbage_collection_time = garbage_collection_time;
 }
 
 /*---------------------------------------------------------------------

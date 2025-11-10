@@ -324,7 +324,6 @@ void sr_handle_ip_packet(struct sr_instance *sr,
       print_hdrs(packet, len);
       return;
     }
-
     /* Buscar interfaz de salida por LPM */
     struct sr_rt *lpm = sr_LPM(sr, ipDst);
     if (!lpm)
@@ -529,6 +528,8 @@ void sr_arp_reply_send_pending_packets(struct sr_instance *sr,
   uint8_t *copyPacket;
 
   while (currPacket != NULL) {
+
+
      ethHdr = (sr_ethernet_hdr_t *) currPacket->buf;
      memcpy(ethHdr->ether_shost, shost, sizeof(uint8_t) * ETHER_ADDR_LEN);
      memcpy(ethHdr->ether_dhost, dhost, sizeof(uint8_t) * ETHER_ADDR_LEN);

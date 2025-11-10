@@ -168,8 +168,21 @@ int sr_rip_update_route(struct sr_instance *sr,
     if (existing_route == NULL)
     {
         /* Insertar nueva entrada en la tabla de enrutamiento */
+       sr_add_rt_entry(sr,
+        (struct in_addr){htonl(network)},
+        (struct in_addr){htonl(src_ip)},
+        (struct in_addr){htonl(mask)},
+        in_if->name,
+        new_metric,
+        route_tag,
+        htonl(src_ip),
+        time(NULL),
+        1,
+        0);
+
+        /*
         struct sr_rt *new_route = malloc(sizeof(struct sr_rt));
-        /* store dest/mask/gw in network byte order */
+        store dest/mask/gw in network byte order 
         new_route->dest.s_addr = htonl(network);
         new_route->mask.s_addr = htonl(mask);
         new_route->gw.s_addr = htonl(src_ip);
@@ -181,9 +194,9 @@ int sr_rip_update_route(struct sr_instance *sr,
         new_route->valid = 1;
         new_route->garbage_collection_time = 0;
 
-        /* Insertar al inicio de la lista */
+         Insertar al inicio de la lista 
         new_route->next = sr->routing_table;
-        sr->routing_table = new_route;
+        sr->routing_table = new_route;*/
 
         pthread_mutex_unlock(&rip_metadata_lock);
         return 1; /* Tabla modificada */
@@ -191,6 +204,9 @@ int sr_rip_update_route(struct sr_instance *sr,
         /* Revivir ruta inválida */
         existing_route->metric = new_metric;
         existing_route->gw.s_addr = htonl(src_ip);
+        /* Update interface to the interface where this update arrived */
+        strncpy(existing_route->interface, in_ifname, sr_IFACE_NAMELEN - 1);
+        existing_route->interface[sr_IFACE_NAMELEN - 1] = '\0';
         existing_route->learned_from = htonl(src_ip);
         existing_route->last_updated = time(NULL);
         existing_route->valid = 1;
@@ -203,6 +219,9 @@ int sr_rip_update_route(struct sr_instance *sr,
         if (existing_route->metric != new_metric || existing_route->gw.s_addr != htonl(src_ip)) {
             existing_route->metric = new_metric;
             existing_route->gw.s_addr = htonl(src_ip);
+            /* Ensure interface reflects arrival interface */
+            strncpy(existing_route->interface, in_ifname, sr_IFACE_NAMELEN - 1);
+            existing_route->interface[sr_IFACE_NAMELEN - 1] = '\0';
             existing_route->last_updated = time(NULL);
 
             pthread_mutex_unlock(&rip_metadata_lock);
@@ -221,6 +240,9 @@ int sr_rip_update_route(struct sr_instance *sr,
             existing_route->metric = new_metric;
             existing_route->gw.s_addr = htonl(src_ip);
             existing_route->learned_from = htonl(src_ip);
+            /* Update interface to the interface where this better route was learned */
+            strncpy(existing_route->interface, in_ifname, sr_IFACE_NAMELEN - 1);
+            existing_route->interface[sr_IFACE_NAMELEN - 1] = '\0';
             existing_route->last_updated = time(NULL);
 
             pthread_mutex_unlock(&rip_metadata_lock);
@@ -344,7 +366,7 @@ void sr_rip_send_response(struct sr_instance *sr, struct sr_if *interface, uint3
     if (!interface->addr) fprintf(stderr, "[RIP] interface->addr es NULL\n");
     if (!interface->name) fprintf(stderr, "[RIP] interface->name es NULL\n");
 
-    /* 1. Contar rutas válidas */
+    /* Contar rutas válidas */
     int num_entries = 0;
     struct sr_rt *rt = sr->routing_table;
     while (rt != NULL) {
@@ -359,40 +381,27 @@ void sr_rip_send_response(struct sr_instance *sr, struct sr_if *interface, uint3
         return;
     }
 
+    int packet_length = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t) + num_entries * sizeof(sr_rip_entry_t);
+
         /* Debug prints for packet construction */
-        int packet_length = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t) + num_entries * sizeof(sr_rip_entry_t);
+        
         int ip_len = packet_length - sizeof(sr_ethernet_hdr_t);
         int udp_len = sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t) + num_entries * sizeof(sr_rip_entry_t);
         printf("Enviando RIP response con: num_entries=%d, packet_length=%d, ip_len=%d, udp_len=%d\n", num_entries, packet_length, ip_len, udp_len);
 
-        /* Calcular tamaño y reservar buffer */
-        uint8_t *buffer = malloc(packet_length);
-        if (!buffer) {
-            fprintf(stderr, "Error: malloc failed\n");
-            return;
-        }
+    /* Calcular tamaño y reservar buffer */
+    uint8_t *buffer = malloc(packet_length);
+    if (!buffer) {
+        fprintf(stderr, "Error: malloc failed\n");
+        return;
+    }
 
     /* Inicializar cabeceras */
     sr_ethernet_hdr_t *eth_hdr = (sr_ethernet_hdr_t *)buffer;
     memset(eth_hdr, 0, sizeof(sr_ethernet_hdr_t));
     eth_hdr->ether_type = htons(ethertype_ip);
-
     memcpy(eth_hdr->ether_shost, interface->addr, ETHER_ADDR_LEN);
-
-    if (ipDst == htonl(RIP_IP)) { /*ipDst es rip, se envia a MAC multicas*/
-        memcpy(eth_hdr->ether_dhost, rip_multicast_mac, ETHER_ADDR_LEN);
-    } else { /*ipDst es ip de un host, se envia a su MAC*/
-         /*Buscar MAC de destina para ipDst en la cache ARP*/
-        struct sr_arpentry *arp_entry = sr_arpcache_lookup(&(sr->cache), ipDst);
-        if (!arp_entry) {
-            sr_arpcache_queuereq(&(sr->cache), ipDst, buffer, packet_length, interface->name);
-            free(buffer);
-            return;
-        }
-        printf("MAC de destino encontrada en la cache ARP\n");
-        memcpy(eth_hdr->ether_dhost, arp_entry->mac, ETHER_ADDR_LEN);
-        free(arp_entry);
-    }
+    /*El ether dest host se setea luego de verificar cache ARP*/
 
     sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(buffer + sizeof(sr_ethernet_hdr_t));
     memset(ip_hdr, 0, sizeof(sr_ip_hdr_t));
@@ -402,9 +411,7 @@ void sr_rip_send_response(struct sr_instance *sr, struct sr_if *interface, uint3
     ip_hdr->ip_src = interface->ip;
     ip_hdr->ip_dst = ipDst;
     ip_hdr->ip_p = ip_protocol_udp;
-
     ip_hdr->ip_len = htons(ip_len);
-    ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t) + num_entries * sizeof(sr_rip_entry_t));
 
     sr_udp_hdr_t *udp_hdr = (sr_udp_hdr_t *)(buffer + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
     memset(udp_hdr, 0, sizeof(sr_udp_hdr_t));
@@ -437,7 +444,6 @@ void sr_rip_send_response(struct sr_instance *sr, struct sr_if *interface, uint3
 
             entries[entry_idx].family_identifier = AF_INET;
             entries[entry_idx].route_tag = htons(rt->route_tag);
-            /* rt->dest.s_addr and rt->mask.s_addr are already in network byte order */
             entries[entry_idx].ip = rt->dest.s_addr;
             entries[entry_idx].mask = rt->mask.s_addr;
             entries[entry_idx].next_hop = htonl(0);
@@ -448,17 +454,29 @@ void sr_rip_send_response(struct sr_instance *sr, struct sr_if *interface, uint3
         rt = rt->next;
     }
 
-    // 6. Calcular checksums
+    //  Calcular checksums
     udp_hdr->checksum = 0;
     uint8_t *rip_payload = (uint8_t *)rip_packet;
     udp_hdr->checksum = udp_cksum(ip_hdr, udp_hdr, rip_payload);
     ip_hdr->ip_sum = ip_cksum(ip_hdr, sizeof(sr_ip_hdr_t));
 
-    // 7. Enviar paquete
-    printf("Enviando paquete RIP RESPONSE por la interfaz %s\n", interface->name);
-    sr_send_packet(sr, buffer, packet_length, interface->name);
-
-    free(buffer);
+    // Consultar ARP y enviar o encolar
+    if (ipDst == htonl(RIP_IP)) {
+        memcpy(eth_hdr->ether_dhost, rip_multicast_mac, ETHER_ADDR_LEN);
+        sr_send_packet(sr, buffer, packet_length, interface->name);
+        free(buffer);
+    } else {
+        struct sr_arpentry *arp_entry = sr_arpcache_lookup(&(sr->cache), ipDst);
+        if (!arp_entry) {
+            sr_arpcache_queuereq(&(sr->cache), ipDst, buffer, packet_length, interface->name);
+            // No liberar buffer aquí
+            return;
+        }
+        memcpy(eth_hdr->ether_dhost, arp_entry->mac, ETHER_ADDR_LEN);
+        free(arp_entry);
+        sr_send_packet(sr, buffer, packet_length, interface->name);
+        free(buffer);
+    }
 }
 
 void *sr_rip_send_requests(void *arg)
