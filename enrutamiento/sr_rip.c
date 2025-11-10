@@ -180,24 +180,6 @@ int sr_rip_update_route(struct sr_instance *sr,
         1,
         0);
 
-        /*
-        struct sr_rt *new_route = malloc(sizeof(struct sr_rt));
-        store dest/mask/gw in network byte order 
-        new_route->dest.s_addr = htonl(network);
-        new_route->mask.s_addr = htonl(mask);
-        new_route->gw.s_addr = htonl(src_ip);
-        strncpy(new_route->interface, in_ifname, sr_IFACE_NAMELEN);
-        new_route->metric = new_metric;
-        new_route->route_tag = route_tag;
-        new_route->learned_from = htonl(src_ip);
-        new_route->last_updated = time(NULL);
-        new_route->valid = 1;
-        new_route->garbage_collection_time = 0;
-
-         Insertar al inicio de la lista 
-        new_route->next = sr->routing_table;
-        sr->routing_table = new_route;*/
-
         pthread_mutex_unlock(&rip_metadata_lock);
         return 1; /* Tabla modificada */
     } else if (existing_route->valid == 0) {
@@ -219,7 +201,6 @@ int sr_rip_update_route(struct sr_instance *sr,
         if (existing_route->metric != new_metric || existing_route->gw.s_addr != htonl(src_ip)) {
             existing_route->metric = new_metric;
             existing_route->gw.s_addr = htonl(src_ip);
-            /* Ensure interface reflects arrival interface */
             strncpy(existing_route->interface, in_ifname, sr_IFACE_NAMELEN - 1);
             existing_route->interface[sr_IFACE_NAMELEN - 1] = '\0';
             existing_route->last_updated = time(NULL);

@@ -116,7 +116,7 @@ int is_packet_valid(uint8_t *packet /* lent */,
       } 
     } else {
       printf("***** -> IP packet is of unknown protocol. No further validation is required.\n");
-      return 0;
+      return 1;
     }    
   }
   //printf("*** -> Packet validation complete. Packet is valid.\n");
