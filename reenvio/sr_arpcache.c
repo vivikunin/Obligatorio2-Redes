@@ -36,8 +36,6 @@ void sr_arp_request_send(struct sr_instance *sr, uint32_t ip, char* iface) {
     printf("$$$ -> Send ARP request for IP ");
     print_addr_ip_int(ntohl(ip));
 
-    /* Determinar la interfaz de salida usando LPM sobre la IP objetivo */
-    struct sr_rt *lpm = sr_LPM(sr, ip);
     struct sr_if *out_if = sr_get_interface(sr, iface);
 
     int pkt_len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t);
