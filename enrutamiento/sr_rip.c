@@ -273,8 +273,7 @@ void sr_handle_rip_packet(struct sr_instance *sr,
     {
         struct sr_if *interfaz_llegada = sr_get_interface(sr, in_ifname);
         sr_ip_hdr_t *ip_orig_rip_pkt = (sr_ip_hdr_t *)(packet + ip_off);
-    /* ip_orig_rip_pkt->ip_src is network order; sr_rip_send_response expects network order */
-    sr_rip_send_response(sr, interfaz_llegada, ip_orig_rip_pkt->ip_src); /*Envía a la ip de origen del paquete la respuesta*/
+        sr_rip_send_response(sr, interfaz_llegada, ip_orig_rip_pkt->ip_src); /*Envía a la ip de origen del paquete la respuesta*/
         return;
     }
     else
@@ -340,7 +339,6 @@ void sr_rip_send_response(struct sr_instance *sr, struct sr_if *interface, uint3
     /* Enviar paquete */
 
     if (!sr || !interface) {
-        printf("[DEBUG] sr o interface es NULL\n");
         fprintf(stderr, "[RIP] Error: puntero nulo en sr_rip_send_response\n");
         return;
     }
@@ -362,15 +360,12 @@ void sr_rip_send_response(struct sr_instance *sr, struct sr_if *interface, uint3
         return;
     }
 
-    int packet_length = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t) + num_entries * sizeof(sr_rip_entry_t);
+    int packet_length = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t) + num_entries * sizeof(sr_rip_entry_t);        
+    int ip_len = packet_length - sizeof(sr_ethernet_hdr_t);
+    int udp_len = sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t) + num_entries * sizeof(sr_rip_entry_t);
+    printf("Enviando RIP response con: num_entries=%d, packet_length=%d, ip_len=%d, udp_len=%d\n", num_entries, packet_length, ip_len, udp_len);
 
-        /* Debug prints for packet construction */
-        
-        int ip_len = packet_length - sizeof(sr_ethernet_hdr_t);
-        int udp_len = sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t) + num_entries * sizeof(sr_rip_entry_t);
-        printf("Enviando RIP response con: num_entries=%d, packet_length=%d, ip_len=%d, udp_len=%d\n", num_entries, packet_length, ip_len, udp_len);
-
-    /* Calcular tamaño y reservar buffer */
+    /* Reservar buffer */
     uint8_t *buffer = malloc(packet_length);
     if (!buffer) {
         fprintf(stderr, "Error: malloc failed\n");
@@ -462,8 +457,6 @@ void sr_rip_send_response(struct sr_instance *sr, struct sr_if *interface, uint3
 
 void *sr_rip_send_requests(void *arg)
 {
-    printf("[DEBUG] Comenzando sr_rip_send_requests\n");
-
     sleep(3); // Esperar a que se inicialice todo
     if (!arg) {
         fprintf(stderr, "[RIP] Error: puntero nulo en sr_rip_send_requests\n");
@@ -476,11 +469,11 @@ void *sr_rip_send_requests(void *arg)
     }
     struct sr_if *interface = sr->if_list;
     while (interface != NULL) {
-    // Un request por cada interfaz
-    int udp_len = sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t) + sizeof(sr_rip_entry_t);
-    int ip_len = sizeof(sr_ip_hdr_t) + udp_len;
-    int packet_length = sizeof(sr_ethernet_hdr_t) + ip_len;
-    uint8_t *pkt = malloc(packet_length);
+        // Un request por cada interfaz
+        int udp_len = sizeof(sr_udp_hdr_t) + sizeof(sr_rip_packet_t) + sizeof(sr_rip_entry_t);
+        int ip_len = sizeof(sr_ip_hdr_t) + udp_len;
+        int packet_length = sizeof(sr_ethernet_hdr_t) + ip_len;
+        uint8_t *pkt = malloc(packet_length);
 
         // Ethernet
         sr_ethernet_hdr_t *eth_hdr = (sr_ethernet_hdr_t *)pkt;
@@ -492,21 +485,21 @@ void *sr_rip_send_requests(void *arg)
         /* Construir cabecera IP */
         sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(pkt + sizeof(sr_ethernet_hdr_t));
         memset(ip_hdr, 0, sizeof(sr_ip_hdr_t));
-    ip_hdr->ip_v = 4; /* version */
-    ip_hdr->ip_hl = 5; /* header length */
-    ip_hdr->ip_ttl = 1; /* RIP usa TTL=1 */
-    ip_hdr->ip_src = interface->ip;
-    ip_hdr->ip_dst = htonl(RIP_IP);
-    ip_hdr->ip_p = ip_protocol_udp;
-    ip_hdr->ip_len = htons(ip_len);
+        ip_hdr->ip_v = 4; /* version */
+        ip_hdr->ip_hl = 5; /* header length */
+        ip_hdr->ip_ttl = 1; /* RIP usa TTL=1 */
+        ip_hdr->ip_src = interface->ip;
+        ip_hdr->ip_dst = htonl(RIP_IP);
+        ip_hdr->ip_p = ip_protocol_udp;
+        ip_hdr->ip_len = htons(ip_len);
 
         // UDP
         sr_udp_hdr_t *udp_hdr = (sr_udp_hdr_t *)(pkt + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
         memset(udp_hdr, 0, sizeof(sr_udp_hdr_t));
-    udp_hdr->src_port = htons(RIP_PORT);
-    udp_hdr->dst_port = htons(RIP_PORT);
-    udp_hdr->length = htons(udp_len);
-    udp_hdr->checksum = 0;
+        udp_hdr->src_port = htons(RIP_PORT);
+        udp_hdr->dst_port = htons(RIP_PORT);
+        udp_hdr->length = htons(udp_len);
+        udp_hdr->checksum = 0;
 
         // RIP Request
         struct sr_rip_packet_t *rip_packet = (sr_rip_packet_t *)(pkt + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_udp_hdr_t));
@@ -522,10 +515,10 @@ void *sr_rip_send_requests(void *arg)
         entry->next_hop = 0;
         entry->metric = htonl(INFINITY);
 
-    // Checksums
-    udp_hdr->checksum = 0;
-    udp_hdr->checksum = udp_cksum(ip_hdr, udp_hdr, (uint8_t *)rip_packet);
-    ip_hdr->ip_sum = ip_cksum(ip_hdr, sizeof(sr_ip_hdr_t));
+        // Checksums
+        udp_hdr->checksum = 0;
+        udp_hdr->checksum = udp_cksum(ip_hdr, udp_hdr, (uint8_t *)rip_packet);
+        ip_hdr->ip_sum = ip_cksum(ip_hdr, sizeof(sr_ip_hdr_t));
 
         // Enviar paquete
         sr_send_packet(sr, pkt, packet_length, interface->name);
@@ -666,6 +659,7 @@ void *sr_rip_timeout_manager(void *arg)
             it = it->next;
         }
         pthread_mutex_unlock(&rip_metadata_lock);
+        #if ENABLE_TRIGGERED_UPDATE
         if (modified>0)
         {
             // Triggered update: enviar RIP RESPONSE por cada interfaz a la dirección multicast
@@ -678,6 +672,7 @@ void *sr_rip_timeout_manager(void *arg)
             printf("Updated RIP routing table:\n");
             print_routing_table(sr);
         }
+        #endif
         
         sleep(1);
 
