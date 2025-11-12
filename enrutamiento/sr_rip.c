@@ -669,11 +669,13 @@ void *sr_rip_timeout_manager(void *arg)
                 iface = iface->next;
             }
             printf("RIP routing table modified. Triggered update sent.\n");
+        }
+        #endif
+        if (modified>0)
+        {
             printf("Updated RIP routing table:\n");
             print_routing_table(sr);
         }
-        #endif
-        
         sleep(1);
 
         
