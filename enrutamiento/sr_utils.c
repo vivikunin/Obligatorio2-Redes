@@ -378,8 +378,12 @@ struct sr_rt *sr_LPM(struct sr_instance *sr, uint32_t ip)
         }
         entrada_actual = entrada_actual->next;
     }
+  if (lpm) {
     printf("Longest matching prefix: %s\n", inet_ntoa(lpm->dest));
-    return lpm;
+  } else {
+    printf("Longest matching prefix: <none>\n");
+  }
+  return lpm;
 }
 
 

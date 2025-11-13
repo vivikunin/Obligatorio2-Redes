@@ -72,8 +72,12 @@ void sr_send_icmp_error_packet(uint8_t type,
   struct sr_rt *lpm = sr_LPM(sr, ipDst);
   if (!lpm)
   {
-    printf("No route found for destination %d\n", ipDst);
-    /* No hay ruta para el destino, no se puede enviar ICMP error, esta ok? */
+    /* No route found: cannot determine outgoing interface */
+    free(packet);
+    return;
+  }
+  /* lpm->interface may be NULL; guard before using it */
+  if (!lpm->interface) {
     free(packet);
     return;
   }
@@ -120,7 +124,6 @@ void sr_send_icmp_error_packet(uint8_t type,
   uint8_t *orig_ip = ipPacket + sizeof(sr_ethernet_hdr_t);
   printf("Copying original IP header and first 8 bytes of payload into ICMP error packet.\n");
   memcpy(icmp_hdr->data, orig_ip, sizeof(sr_ip_hdr_t) + 8);
-  printf("Original IP header and payload copied successfully.\n");
 
   /* Calculo el checksum del header ICMP */
   icmp_hdr->icmp_sum = icmp3_cksum(icmp_hdr, sizeof(sr_icmp_t3_hdr_t));
@@ -129,7 +132,6 @@ void sr_send_icmp_error_packet(uint8_t type,
   printf("Constructing Ethernet header for ICMP error packet.\n");
   memcpy(eth_hdr->ether_shost, iface->addr, ETHER_ADDR_LEN); /* MAC de origen es la de la interfaz de salida */
   eth_hdr->ether_type = htons(ethertype_ip);
-  printf("Ethernet header constructed for ICMP error packet.\n");
 
   /* Determinar MAC destino en la cache ARP y enviar o hacer ARP request */
   struct sr_arpentry *entry = sr_arpcache_lookup(&(sr->cache), next_hop);
@@ -158,9 +160,11 @@ void sr_send_icmp_echo_reply(struct sr_instance *sr,
                              char *interface)
 {
   /* Obtengo la interfaz de salida */
-  printf("Preparing to send ICMP Echo Reply on interface %s\n", interface);
   struct sr_if *iface = sr_get_interface(sr, interface);
-  printf("Interface %s found for ICMP Echo Reply.\n", interface);
+  if (!iface) {
+    /* Interface not present locally, cannot send reply */
+    return;
+  }
 
   /* Cabeceras del paquete original */
   sr_ethernet_hdr_t *eth_orig = (sr_ethernet_hdr_t *)packet;
@@ -172,7 +176,6 @@ void sr_send_icmp_echo_reply(struct sr_instance *sr,
   /* Reservo buffer del mismo tamaño total que el original (ether + ip + icmp payload) */
   uint8_t *new_packet = malloc(sizeof(sr_ethernet_hdr_t) + orig_ip_len);
   if (!new_packet) {
-    printf("Failed to allocate memory for ICMP Echo Reply packet.\n");
     return;
   }
 
@@ -182,7 +185,6 @@ void sr_send_icmp_echo_reply(struct sr_instance *sr,
   memcpy(ether_hdr_new_packet->ether_shost, iface->addr, ETHER_ADDR_LEN);
   memcpy(ether_hdr_new_packet->ether_dhost, eth_orig->ether_shost, ETHER_ADDR_LEN);
   ether_hdr_new_packet->ether_type = htons(ethertype_ip);
-  printf("Ethernet header constructed for ICMP Echo Reply.\n");
 
   /* IP header: copiar el original y ajustar src/dst / ttl / checksum */
   sr_ip_hdr_t *new_ip_hdr = (sr_ip_hdr_t *)(new_packet + sizeof(sr_ethernet_hdr_t));
@@ -192,7 +194,6 @@ void sr_send_icmp_echo_reply(struct sr_instance *sr,
   new_ip_hdr->ip_ttl = 64;
   new_ip_hdr->ip_sum = 0;
   new_ip_hdr->ip_sum = ip_cksum(new_ip_hdr, ip_hdr_len);
-  printf("IP header constructed for ICMP Echo Reply.\n");
 
   /* Crear la cabecera ICMP */
   sr_icmp_hdr_t *icmp_hdr = (sr_icmp_hdr_t *)(new_packet + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
@@ -208,7 +209,6 @@ void sr_send_icmp_echo_reply(struct sr_instance *sr,
   icmp_new->icmp_code = 0;
   icmp_new->icmp_sum = 0;
   icmp_new->icmp_sum = icmp_cksum(icmp_new, icmp_len);
-  printf("ICMP header constructed for Echo Reply.\n");
 
   /* Enviar paquete */
   sr_send_packet(sr, new_packet, sizeof(sr_ethernet_hdr_t) + orig_ip_len, iface->name);
@@ -281,9 +281,11 @@ void sr_handle_ip_packet(struct sr_instance *sr,
             }
         printf("LPM found for ICMP Echo Reply.\n");
         if (lpm->interface) {
-          printf("Sending ICMP Echo Reply on interface %s\n", lpm->interface);
-          sr_send_icmp_echo_reply(sr, packet, len, lpm->interface);
-          printf("ICMP Echo Reply sent on interface %s\n", lpm->interface);
+          /* verify interface exists before sending */
+          struct sr_if *out_if = sr_get_interface(sr, lpm->interface);
+          if (out_if) {
+            sr_send_icmp_echo_reply(sr, packet, len, lpm->interface);
+          }
         }
       }
     }
@@ -294,12 +296,10 @@ void sr_handle_ip_packet(struct sr_instance *sr,
         /* Verificar si es un paquete RIP */
           printf("The IP packet is a UDP packet.\n");
           sr_udp_hdr_t *udp_hdr = (sr_udp_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
-          printf("UDP header casteado\n");
           if (ntohs(udp_hdr->dst_port) == RIP_PORT) {
               unsigned int ip_off = sizeof(sr_ethernet_hdr_t);
               unsigned int rip_off = ip_off + sizeof(sr_ip_hdr_t) + sizeof(sr_udp_hdr_t);
               unsigned int rip_len = len - rip_off;
-              printf("RIP packet received, passing to RIP handler.\n");
               sr_handle_rip_packet(sr, packet, len, ip_off, rip_off, rip_len, interface);
               return;
           }
@@ -330,12 +330,14 @@ void sr_handle_ip_packet(struct sr_instance *sr,
     {
       /* No hay ruta para el destino enviar Destination net unreachable (3,0) */
       sr_send_icmp_error_packet(3, 0, sr, ip_hdr->ip_src, packet);
-      printf("ICMP Destination Net Unreachable sent.\n");
-      print_hdrs(packet, len);
       return;
     }
     else
     {
+      /* lpm->interface should be non-null here; guard and abort if missing */
+      if (!lpm->interface) {
+        return;
+      }
       struct sr_if *iface = sr_get_interface(sr, lpm->interface);
       if (!iface) {
         fprintf(stderr, "Error: interface not found\n");
@@ -354,8 +356,8 @@ void sr_handle_ip_packet(struct sr_instance *sr,
       }
 
       /* HACER COPIA DEL PAQUETE porque vamos a modificarlo */
-      uint8_t *pkt_copy = malloc(len);
-      if (!pkt_copy) return;
+  uint8_t *pkt_copy = malloc(len);
+  if (!pkt_copy) return;
       memcpy(pkt_copy, packet, len);
 
       sr_ip_hdr_t *ip_copy = (sr_ip_hdr_t *)(pkt_copy + sizeof(sr_ethernet_hdr_t));
