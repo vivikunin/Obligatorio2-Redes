@@ -411,8 +411,17 @@ void sr_rip_send_response(struct sr_instance *sr, struct sr_if *interface, uint3
             uint32_t metric = rt->metric;
             /* Split horizon con poisoned reverse solo si está activado */
             #if ENABLE_POISONED_REVERSE
-            if (rt->learned_from == interface->ip) {
-                metric = INFINITY;
+            if (ipDst != htonl(RIP_IP)) {
+                /* unicast to a neighbor: ipDst is the neighbor IP in network order */
+                if (rt->learned_from == ipDst) {
+                    metric = INFINITY;
+                }
+            } else {
+                /* multicast: poison routes learned via this outgoing interface */
+                if (rt->interface && interface->name &&
+                    strncmp(rt->interface, interface->name, sr_IFACE_NAMELEN) == 0) {
+                    metric = INFINITY;
+                }
             }
             #endif
             if (metric < 1) metric = 1;

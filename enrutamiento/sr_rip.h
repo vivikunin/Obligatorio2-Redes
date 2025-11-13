@@ -19,9 +19,15 @@
 #define RIP_COMMAND_RESPONSE 2
 #define RIP_VERSION 2
 #define INFINITY 16
+#ifndef RIP_ADVERT_INTERVAL_SEC
 #define RIP_ADVERT_INTERVAL_SEC 10
+#endif
+#ifndef RIP_TIMEOUT_SEC
 #define RIP_TIMEOUT_SEC 60
+#endif
+#ifndef RIP_GARBAGE_COLLECTION_SEC
 #define RIP_GARBAGE_COLLECTION_SEC 40
+#endif
 #define ENABLE_POISONED_REVERSE 1
 // Bandera para habilitar/deshabilitar triggered updates
 #define ENABLE_TRIGGERED_UPDATE 1
