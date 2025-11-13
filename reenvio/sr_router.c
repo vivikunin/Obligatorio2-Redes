@@ -57,7 +57,6 @@ void sr_send_icmp_error_packet(uint8_t type,
 {
 
   /* COLOQUE AQUÍ SU CÓDIGO*/
-  printf("$$$ -> Send ICMP error packet.\n");
   /*
    * PASOS:
    * - Construir  cabezal Ethernet (la dir MAC de destino se obtiene de la cache ARP o se hace ARP request si no está)
@@ -75,7 +74,11 @@ void sr_send_icmp_error_packet(uint8_t type,
   struct sr_rt *lpm = sr_LPM(sr, ipDst);
   if (!lpm)
   {
-    /* No hay ruta para el destino, no se puede enviar ICMP error, esta ok? */
+    /* No route: cannot determine outgoing interface */
+    free(packet);
+    return;
+  }
+  if (!lpm->interface) {
     free(packet);
     return;
   }
@@ -156,6 +159,9 @@ void sr_send_icmp_echo_reply(struct sr_instance *sr,
 {
   /* Obtengo la interfaz de salida */
   struct sr_if *iface = sr_get_interface(sr, interface);
+  if (!iface) {
+    return;
+  }
 
   /* Cabeceras del paquete original */
   sr_ethernet_hdr_t *eth_orig = (sr_ethernet_hdr_t *)packet;
@@ -228,7 +234,6 @@ void sr_handle_ip_packet(struct sr_instance *sr,
    * - Sino, verificar TTL, ARP y reenviar si corresponde (puede necesitar una solicitud ARP y esperar la respuesta)
    * - No olvide imprimir los mensajes de depuración
    */
-  printf("Starting sr_handle_ip_packet\n");
   sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t));
   uint32_t ipDst = ip_hdr->ip_dst;
   print_hdr_ip((uint8_t *)ip_hdr);
@@ -259,10 +264,14 @@ void sr_handle_ip_packet(struct sr_instance *sr,
             if (!lpm) {
                 /* No hay ruta para responder al origen, enviar net unreachable */
                 sr_send_icmp_error_packet(3, 0, sr, ip_hdr->ip_src, packet);
-                printf("ICMP Destination Net Unreachable sent for echo reply.\n");
                 return;
             }
-            sr_send_icmp_echo_reply(sr, packet, len, lpm->interface);
+            if (lpm->interface) {
+              struct sr_if *out_if = sr_get_interface(sr, lpm->interface);
+              if (out_if) {
+                sr_send_icmp_echo_reply(sr, packet, len, lpm->interface);
+              }
+            }
       }
     }
     /* Si es TCP o UDP enviar ICMP port unreachable */
@@ -270,22 +279,18 @@ void sr_handle_ip_packet(struct sr_instance *sr,
     {
       /* Enviar ICMP port unreachable */
       sr_send_icmp_error_packet(3, 3, sr, ip_hdr->ip_src, packet);
-      printf("ICMP Port Unreachable sent.\n");
-      print_hdrs(packet, len);
     }
     return;
   }
   else
   {
-    printf("The received IP packet is NOT for one of my interfaces.\n");
+  /* packet is not for this router: forward */
     /* El router debe reenviar el paquete */
     /* Verificar TTL */
     if (ip_hdr->ip_ttl <= 1)
     {
       /* Enviar ICMP Time Exceeded al origen del paquete original */
       sr_send_icmp_error_packet(11, 0, sr, ip_hdr->ip_src, packet);
-      printf("ICMP Time Exceeded sent.\n");
-      print_hdrs(packet, len);
       return;
     }
 
@@ -301,6 +306,9 @@ void sr_handle_ip_packet(struct sr_instance *sr,
     }
     else
     {
+      if (!lpm->interface) {
+        return;
+      }
       struct sr_if *iface = sr_get_interface(sr, lpm->interface);
       if (!iface) {
         fprintf(stderr, "Error: interface not found\n");
