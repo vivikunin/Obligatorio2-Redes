@@ -345,18 +345,19 @@ void sr_rip_send_response(struct sr_instance *sr, struct sr_if *interface, uint3
     if (!interface->addr) fprintf(stderr, "[RIP] interface->addr es NULL\n");
     if (!interface->name) fprintf(stderr, "[RIP] interface->name es NULL\n");
 
-    /* Contar rutas válidas */
+    /* Contar rutas: incluir rutas inválidas (para anunciarlas como INFINITY)
+       Esto permite que los triggered updates anuncien retiros de rutas. */
     int num_entries = 0;
     struct sr_rt *rt = sr->routing_table;
     while (rt != NULL) {
-        if (rt->valid == 1) {
-            num_entries++;
-        }
+        /* Contar todas las entradas de la tabla. Si quieres filtrar (por ejemplo
+           evitar entradas temporales), cambia la condición aquí. */
+        num_entries++;
         rt = rt->next;
     }
-    
+
     if (num_entries == 0) {
-        printf("[RIP DEBUG] No se envía paquete RIP: num_entries == 0\n");
+        printf("[RIP DEBUG] No se envía paquete RIP: tabla de rutas vacía\n");
         return;
     }
 
@@ -407,35 +408,40 @@ void sr_rip_send_response(struct sr_instance *sr, struct sr_if *interface, uint3
     rt = sr->routing_table;
     int entry_idx = 0;
     while (rt != NULL) {
-        if (rt->valid == 1) {
-            uint32_t metric = rt->metric;
-            /* Split horizon con poisoned reverse solo si está activado */
-            #if ENABLE_POISONED_REVERSE
-            if (ipDst != htonl(RIP_IP)) {
-                /* unicast to a neighbor: ipDst is the neighbor IP in network order */
-                if (rt->learned_from == ipDst) {
-                    metric = INFINITY;
-                }
-            } else {
-                /* multicast: poison routes learned via this outgoing interface */
-                if (rt->interface && interface->name &&
-                    strncmp(rt->interface, interface->name, sr_IFACE_NAMELEN) == 0) {
-                    metric = INFINITY;
-                }
-            }
-            #endif
-            if (metric < 1) metric = 1;
-            if (metric > INFINITY) metric = INFINITY;
-
-            entries[entry_idx].family_identifier = AF_INET;
-            entries[entry_idx].route_tag = htons(rt->route_tag);
-            entries[entry_idx].ip = rt->dest.s_addr;
-            entries[entry_idx].mask = rt->mask.s_addr;
-            entries[entry_idx].next_hop = htonl(0);
-            entries[entry_idx].metric = htonl(metric);
-
-            entry_idx++;
+        /* Tomar la métrica desde la tabla; si la entrada está marcada inválida,
+           anunciarla como INFINITY (retiro de ruta). */
+        uint32_t metric = rt->metric;
+        if (rt->valid == 0) {
+            metric = INFINITY;
         }
+
+        /* Split horizon con poisoned reverse */
+        #if ENABLE_POISONED_REVERSE
+        if (ipDst != htonl(RIP_IP)) {
+            /* unicast a vecino: ipDst está en orden de red */
+            if (rt->learned_from == ipDst) {
+                metric = INFINITY;
+            }
+        } else {
+            /* multicast: poison routes aprendidas por la interfaz de salida */
+            if (rt->interface && interface->name &&
+                strncmp(rt->interface, interface->name, sr_IFACE_NAMELEN) == 0) {
+                metric = INFINITY;
+            }
+        }
+        #endif
+
+        if (metric < 1) metric = 1;
+        if (metric > INFINITY) metric = INFINITY;
+
+        entries[entry_idx].family_identifier = AF_INET;
+        entries[entry_idx].route_tag = htons(rt->route_tag);
+        entries[entry_idx].ip = rt->dest.s_addr;
+        entries[entry_idx].mask = rt->mask.s_addr;
+        entries[entry_idx].next_hop = htonl(0);
+        entries[entry_idx].metric = htonl(metric);
+
+        entry_idx++;
         rt = rt->next;
     }
 
