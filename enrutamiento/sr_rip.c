@@ -133,7 +133,7 @@ int sr_rip_update_route(struct sr_instance *sr,
             /* Esta ruta existe y fue aprendida desde el mismo vecino (src_ip) */
             existing_route->metric = INFINITY;
             existing_route->valid = 0; /* Marca como inválida */
-            existing_route->garbage_collection_time = time(NULL) + RIP_GARBAGE_COLLECTION_SEC;
+            existing_route->garbage_collection_time = time(NULL);
             pthread_mutex_unlock(&rip_metadata_lock);
             return 1; /* Tabla modificada */
         }
