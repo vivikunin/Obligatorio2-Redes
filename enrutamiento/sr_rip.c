@@ -711,48 +711,56 @@ void *sr_rip_garbage_collection_manager(void *arg)
         fprintf(stderr, "[RIP] Error: sr nulo en sr_rip_garbage_collection_manager\n");
         return NULL;
     }
-    /*
-        - Bucle infinito que espera 1 segundo entre comprobaciones.
-        - Recorre la tabla de enrutamiento y elimina aquellas rutas que:
-            * estén marcadas como inválidas (valid == 0) y
-            * lleven más tiempo en garbage collection que RIP_GARBAGE_COLLECTION_SEC
-              (current_time >= garbage_collection_time + RIP_GARBAGE_COLLECTION_SEC).
-        - Si se detectan eliminaciones, se imprime la tabla.
-        - Se debe usar el mutex rip_metadata_lock para proteger el acceso concurrente
-          a la tabla de enrutamiento.
-    */
 
-    pthread_mutex_lock(&rip_metadata_lock);
-    time_t current_time = time(NULL);
-    int deleted = 0;
-    struct sr_rt *prev = NULL;
-    struct sr_rt *it = sr->routing_table;
-    while (it != NULL)
-    {
-        struct sr_rt *next = it->next;
-        if (it->valid == 0 && current_time >= it->garbage_collection_time + RIP_GARBAGE_COLLECTION_SEC)
+        /* Bucle periódico: revisar la tabla y eliminar rutas en garbage collection
+                - Ejecuta un ciclo infinito que espera 1 segundo entre comprobaciones.
+                - Recorre la tabla de enrutamiento y elimina aquellas rutas que:
+                        * estén marcadas como inválidas (valid == 0) y
+                        * lleven más tiempo en garbage collection que RIP_GARBAGE_COLLECTION_SEC
+                            (current_time >= garbage_collection_time + RIP_GARBAGE_COLLECTION_SEC).
+                - Si se detectan eliminaciones, se imprime la tabla.
+                - Se debe usar el mutex rip_metadata_lock para proteger el acceso concurrente
+                    a la tabla de enrutamiento.
+        */
+        while (1) {
+        pthread_mutex_lock(&rip_metadata_lock);
+        time_t current_time = time(NULL);
+        int deleted = 0;
+        struct sr_rt *prev = NULL;
+        struct sr_rt *it = sr->routing_table;
+        while (it != NULL)
         {
-            /* Eliminar ruta de forma segura */
-            if (prev == NULL) {
-                /* head */
-                sr->routing_table = next;
-                free(it);
+            struct sr_rt *next = it->next;
+            if (it->valid == 0 && (current_time >= it->garbage_collection_time + RIP_GARBAGE_COLLECTION_SEC))
+            {
+                /* Eliminar ruta de forma segura */
+                if (prev == NULL) {
+                    /* head */
+                    sr->routing_table = next;
+                    free(it);
+                } else {
+                    prev->next = next;
+                    free(it);
+                }
+                deleted++;
             } else {
-                prev->next = next;
-                free(it);
+                prev = it;
             }
-            deleted++;
-        } else {
-            prev = it;
+            it = next;
         }
-        it = next;
+        pthread_mutex_unlock(&rip_metadata_lock);
+
+        if (deleted > 0)
+        {
+            Debug("-> RIP: Deleted %d routes from the routing table\n", deleted);
+            print_routing_table(sr);
+        }
+
+        /* Esperar 1 segundo antes de la siguiente iteración */
+        sleep(1);
     }
-    pthread_mutex_unlock(&rip_metadata_lock);
-    if (deleted > 0)
-    {
-        Debug("-> RIP: Deleted %d routes from the routing table\n", deleted);
-        print_routing_table(sr);
-    }
+
+    /* nunca llega aquí */
     return NULL;
 }
 
