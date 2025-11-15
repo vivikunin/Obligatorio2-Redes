@@ -130,12 +130,21 @@ int sr_rip_update_route(struct sr_instance *sr,
         /* Verificar si fue aprendida del mismo vecino */
         if (existing_route != NULL && existing_route->learned_from == htonl(src_ip))
         {
-            /* Esta ruta existe y fue aprendida desde el mismo vecino (src_ip) */
-            existing_route->metric = INFINITY;
-            existing_route->valid = 0; /* Marca como inválida */
-            existing_route->garbage_collection_time = time(NULL);
-            pthread_mutex_unlock(&rip_metadata_lock);
-            return 1; /* Tabla modificada */
+            /* Esta ruta existe y fue aprendida desde el mismo vecino (src_ip)
+               Sólo marcarla como inválida si aún estaba válida. Si ya está
+               inválida, no actualizamos garbage_collection_time para evitar
+               reiniciar el timer y provocar triggered updates/prints repetidos. */
+            if (existing_route->valid == 1) {
+                existing_route->metric = INFINITY;
+                existing_route->valid = 0; /* Marca como inválida */
+                existing_route->garbage_collection_time = time(NULL);
+                pthread_mutex_unlock(&rip_metadata_lock);
+                return 1; /* Tabla modificada */
+            } else {
+                /* Ya estaba inválida: no hay cambio real */
+                pthread_mutex_unlock(&rip_metadata_lock);
+                return 0;
+            }
         }
 
         pthread_mutex_unlock(&rip_metadata_lock);
